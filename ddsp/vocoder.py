@@ -236,7 +236,7 @@ class Audio2HubertSoft(torch.nn.Module):
         print(' [Encoder Model] HuBERT Soft')
         self.hubert = HubertSoft()
         print(' [Loading] ' + path)
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=False)
         consume_prefix_in_state_dict_if_present(checkpoint, "module.")
         self.hubert.load_state_dict(checkpoint)
         self.hubert.eval()
@@ -380,7 +380,7 @@ class CNHubertSoftFish(torch.nn.Module):
         self.proj = torch.nn.Sequential(torch.nn.Dropout(0.1), torch.nn.Linear(768, 256))
         # self.label_embedding = nn.Embedding(128, 256)
 
-        state_dict = torch.load(path, map_location=device)
+        state_dict = torch.load(path, map_location=device, weights_only=False)
         self.load_state_dict(state_dict)
 
     @torch.no_grad()

@@ -74,7 +74,7 @@ def load_config(path_config):
 
 
 def to_json(path_params, path_json):
-    params = torch.load(path_params, map_location=torch.device('cpu'))
+    params = torch.load(path_params, map_location=torch.device('cpu'), weights_only=False)
     raw_state_dict = {}
     for k, v in params.items():
         val = v.flatten().numpy().tolist()
@@ -114,7 +114,7 @@ def load_model(
         else:
             path_pt = path+'best.pt'
         print(' [*] restoring model from', path_pt)
-        ckpt = torch.load(path_pt, map_location=torch.device(device))
+        ckpt = torch.load(path_pt, map_location=torch.device(device), weights_only=False)
         global_step = ckpt['global_step']
         model.load_state_dict(ckpt['model'], strict=False)
         if ckpt.get('optimizer') != None:

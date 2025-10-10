@@ -677,7 +677,7 @@ def export_onnx(model_path, output_path):
         args.model.n_layers,
         args.model.n_chans,
         args.data.f0_min)
-    ckpt = torch.load(model_path, map_location=torch.device('cpu'))
+    ckpt = torch.load(model_path, map_location=torch.device('cpu'), weights_only=False)
     model.to('cpu')
     model.load_state_dict(ckpt['model'], strict=True)
     model.eval()

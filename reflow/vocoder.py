@@ -52,7 +52,7 @@ def load_model_vocoder(
         raise ValueError(f" [x] Unknown Model: {args.model.type}")
         
     print(' [Loading] ' + model_path)
-    ckpt = torch.load(model_path, map_location=torch.device(device))
+    ckpt = torch.load(model_path, map_location=torch.device(device), weights_only=False)
     model.to(device)
     model.load_state_dict(ckpt['model'])
     model.eval()
