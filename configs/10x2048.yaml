@@ -14,12 +14,12 @@ data:
   f0_max: 800
   f0_min: 65
   sampling_rate: 44100
-  train_path: data/train
-  valid_path: data/val
+  train_path: /kaggle/input/28spks/dataset_28spks/content/DDSP-SVC/data/train
+  valid_path: /kaggle/input/28spks/dataset_28spks/content/DDSP-SVC/data/val
   volume_smooth_size: 1024
 device: cuda
 env:
-  expdir: exp/reflow-test
+  expdir: /kaggle/working/exp/reflow-test
   gpu_id: 0
 infer:
   infer_step: 40
