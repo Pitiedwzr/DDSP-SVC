@@ -240,7 +240,11 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
                 del reflow_loss
                 continue
             elif torch.isnan(reflow_loss):
-                raise ValueError(' [x] nan reflow_loss ')
+                print(' [x] nan reflow_loss ')
+                optimizer.zero_grad()
+                del ddsp_loss
+                del reflow_loss
+                continue
             else:
                 loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss
                 # backpropagate
