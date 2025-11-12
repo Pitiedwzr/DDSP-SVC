@@ -253,6 +253,8 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
                     optimizer.step()
                 else:
                     scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                     scaler.step(optimizer)
                     scaler.update()
                 scheduler.step()
