@@ -38,7 +38,7 @@ model:
   win_length: 2048
 train:
   amp_dtype: fp32
-  batch_size: 36
+  batch_size: 32
   cache_all_data: true
   cache_device: cuda
   cache_fp16: true
