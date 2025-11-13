@@ -46,7 +46,7 @@ train:
   epochs: 100000
   gamma: 0.9
   interval_force_save: 10000
-  interval_log: 10
+  interval_log: 1
   interval_val: 2000
   lambda_ddsp: 1
   lr: 0.0005
