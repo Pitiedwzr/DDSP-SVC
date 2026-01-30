@@ -4,15 +4,13 @@ Language: [English](./README.md) **简体中文**
 
 ## 0.简介
 
-DDSP-SVC 是一个新的开源歌声转换项目，致力于开发可以在个人电脑上普及的自由 AI 变声器软件。
+DDSP-SVC 是一个开源歌声转换项目，致力于开发可以在个人电脑上普及的自由 AI 变声器软件。
 
 相比于著名的 [SO-VITS-SVC](https://github.com/svc-develop-team/so-vits-svc), 它训练和合成对电脑硬件的要求要低的多，并且训练时长有数量级的缩短，和 [RVC](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI) 的训练速度接近。
 
 另外在进行实时变声时，本项目的硬件资源消耗显著低于 SO-VITS-SVC , 但可能略高于 RVC 最新版本。
 
 虽然 DDSP 的原始合成质量不是很理想（训练时在 tensorboard 中可以听到原始输出），但在使用基于预训练声码器的增强器（老版本）或使用浅扩散模型（新版本）增强音质后，对于部分数据集可以达到不亚于 SOVITS-SVC 和 RVC 的合成质量。
-
-老版本的模型仍然是兼容的，以下章节是老版本的使用说明。新版本部分操作是相同的，见之前章节。
 
 免责声明：请确保仅使用**合法获得的授权数据**训练 DDSP-SVC 模型，不要将这些模型及其合成的任何音频用于非法目的。 本库作者不对因使用这些模型检查点和音频而造成的任何侵权，诈骗等违法行为负责。
 
@@ -38,19 +36,19 @@ DDSP-SVC 是一个新的开源歌声转换项目，致力于开发可以在个�
 pip install -r requirements.txt
 ```
 
-python 3.8 (windows) + cuda 11.8 + torch 2.4.1 + torchaudio 2.4.1 可以运行
+python 3.11 (windows) + cuda 13.0 + torch 2.9.1 + torchaudio 2.9.1 可以运行
 
 ## 2. 配置预训练模型
 
 * 特征编码器 (可只选其一)：
 
-(1) 下载预训练 [ContentVec](https://ibm.ent.box.com/s/z1wgl1stco8ffooyatzdwsqn2psd9lrr) 编码器并将其放到 `pretrain/contentvec` 文件夹。
+(1) 下载预训练 [ContentVec](https://huggingface.co/lengyue233/content-vec-best/resolve/main/pytorch_model.bin?download=true) 编码器并将其放到 `pretrain/contentvec` 文件夹。
 
 (2) 下载预训练 [HubertSoft](https://github.com/bshall/hubert/releases/download/v0.1/hubert-soft-0d54a1f4.pt) 编码器并将其放到 `pretrain/hubert` 文件夹，同时修改配置文件。
 
 * 声码器：
 
-下载并解压预训练 [NSF-HiFiGAN](https://github.com/openvpi/vocoders/releases/download/nsf-hifigan-44.1k-hop512-128bin-2024.02/nsf_hifigan_44.1k_hop512_128bin_2024.02.zip) 声码器
+下载并解压预训练 [NSF-HiFiGAN](https://github.com/openvpi/vocoders/releases/download/pc-nsf-hifigan-44.1k-hop512-128bin-2025.02/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.zip) 声码器
 
 或者使用 https://github.com/openvpi/SingingVocoders 微调声码器以获得更高音质。
 
@@ -126,7 +124,7 @@ data
 ### 3.2. 执行预处理
 
 ```bash
-python preprocess.py -c configs/reflow.yaml
+python preprocess.py -c configs/reflow.yaml -j <number of processes>
 ```
 
 1. 默认配置适用于 RTX-4060 显卡训练 44.1khz 高采样率合成器。
@@ -208,4 +206,6 @@ python gui_reflow.py
 * [Diff-SVC](https://github.com/prophesier/diff-svc)
 
 * [Diffusion-SVC](https://github.com/CNChTu/Diffusion-SVC)
+
+* [SO-VITS-SVC](https://github.com/svc-develop-team/so-vits-svc)
 

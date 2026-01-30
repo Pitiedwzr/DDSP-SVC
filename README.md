@@ -4,15 +4,13 @@ Language: **English** [简体中文](./cn_README.md)
 
 ## 0. Introduction
 
-DDSP-SVC is a new open source singing voice conversion project dedicated to the development of free AI voice changer software that can be popularized on personal computers.
+DDSP-SVC is an open source singing voice conversion project dedicated to the development of free AI voice changer software that can be popularized on personal computers.
 
 Compared with the famous [SO-VITS-SVC](https://github.com/svc-develop-team/so-vits-svc), its training and synthesis have much lower requirements for computer hardware, and the training time can be shortened by orders of magnitude, which is close to the training speed of [RVC](https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI).
 
 In addition, when performing real-time voice changing, the hardware resource consumption of this project is significantly lower than that of SO-VITS-SVC，but probably slightly higher than the latest version of RVC.
 
 Although the original synthesis quality of DDSP is not ideal (the original output can be heard in tensorboard while training), after enhancing the sound quality with a pre-trained vocoder based enhancer (old version) or with a shallow diffusion model (new version) , for some datasets, it can achieve the synthesis quality no less than SOVITS-SVC and RVC.
-
-The old version models are still compatible, the following chapters are the instructions for the old version. Some operations of the new version are the same, see the previous chapters.
 
 Disclaimer: Please make sure to only train DDSP-SVC models with **legally obtained authorized data**, and do not use these models and any audio they synthesize for illegal purposes. The author of this repository is not responsible for any infringement, fraud and other illegal acts caused by the use of these model checkpoints and audio.
 
@@ -26,19 +24,19 @@ We recommend first installing PyTorch from the [official website](https://pytorc
 pip install -r requirements.txt
 ```
 
-python 3.8 (windows) + cuda 11.8 + torch 2.4.1 + torchaudio 2.4.1 works.
+python 3.11 (windows) + cuda 13.0 + torch 2.9.1 + torchaudio 2.9.1 works.
 
 ## 2. Configuring the pretrained model
 
 - Feature Encoder (choose only one):
 
-(1) Download the pre-trained [ContentVec](https://ibm.ent.box.com/s/z1wgl1stco8ffooyatzdwsqn2psd9lrr) encoder and put it under `pretrain/contentvec` folder.
+(1) Download the pre-trained [ContentVec](https://huggingface.co/lengyue233/content-vec-best/resolve/main/pytorch_model.bin?download=true) encoder and put it under `pretrain/contentvec` folder.
 
 (2) Download the pre-trained [HubertSoft](https://github.com/bshall/hubert/releases/download/v0.1/hubert-soft-0d54a1f4.pt) encoder and put it under `pretrain/hubert` folder, and then modify the configuration file at the same time.
 
 - Vocoder:
 
-Download and unzip the pre-trained [NSF-HiFiGAN](https://github.com/openvpi/vocoders/releases/download/nsf-hifigan-44.1k-hop512-128bin-2024.02/nsf_hifigan_44.1k_hop512_128bin_2024.02.zip) vocoder 
+Download and unzip the pre-trained [NSF-HiFiGAN](https://github.com/openvpi/vocoders/releases/download/pc-nsf-hifigan-44.1k-hop512-128bin-2025.02/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.zip) vocoder 
 
 or use the https://github.com/openvpi/SingingVocoders project to fine-tune the vocoder for higher sound quality.
 
@@ -63,7 +61,7 @@ to help you select validation data (you can adjust the parameters in `draw.py` t
 Then run the preprocessor:
 
 ```bash
-python preprocess.py -c configs/reflow.yaml
+python preprocess.py -c configs/reflow.yaml -j <number of processes>
 ```
 
 NOTE 1: The default configuration is suitable for with RTX-4060 graphics card.
@@ -116,7 +114,6 @@ data/val/audio/ddd.wav
 ## 4. Training
 
 ```bash
-# train a combsub model as an example
 python train_reflow.py -c configs/reflow.yaml
 ```
 
@@ -182,3 +179,5 @@ The front-end uses technologies such as sliding window, cross-fading, SOLA-based
 - [Diff-SVC](https://github.com/prophesier/diff-svc)
 
 - [Diffusion-SVC](https://github.com/CNChTu/Diffusion-SVC)
+
+- [SO-VITS-SVC](https://github.com/svc-develop-team/so-vits-svc)

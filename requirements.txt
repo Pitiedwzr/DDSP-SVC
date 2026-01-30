@@ -1,4 +1,3 @@
-git+https://github.com/liyaodev/fairseq.git
 FreeSimpleGUI
 gin
 gin_config
