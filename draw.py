@@ -7,8 +7,8 @@ import shutil
 import soundfile as sf
 
 WAV_MIN_LENGTH = 2    # wav文件的最短时长 / The minimum duration of wav files
-SAMPLE_MIN = 2    # 抽取的文件数量下限 / The lower limit of the number of files to be extracted
-SAMPLE_MAX = 10    # 抽取的文件数量上限 / The upper limit of the number of files to be extracted
+SAMPLE_MIN = 1    # 抽取的文件数量下限 / The lower limit of the number of files to be extracted
+SAMPLE_MAX = 1    # 抽取的文件数量上限 / The upper limit of the number of files to be extracted
 
 
 def parse_args(args=None, namespace=None):
