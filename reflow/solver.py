@@ -1,5 +1,6 @@
 import os
 import time
+import random
 import numpy as np
 import torch
 import librosa
@@ -17,7 +18,7 @@ def calculate_mel_snr(gt_mel, pred_mel):
     # 计算误差图像的方差
     variance_error = torch.var(error_image)
     # 计算并返回SNR
-    snr = 10 * torch.log10(mean_square_reference / variance_error)
+    snr = 10 * torch.log10((mean_square_reference + 1e-9) / (variance_error + 1e-9))
     return snr
 
 
@@ -54,6 +55,7 @@ def test(args, model, vocoder, loader_test, saver):
     # losses
     test_ddsp_loss = 0.
     test_reflow_loss = 0.
+    test_f0_loss = 0.
 
     # mel mse val
     mel_val_mse_all = 0
@@ -106,7 +108,7 @@ def test(args, model, vocoder, loader_test, saver):
             rtf_all.append(rtf)
            
             # loss
-            ddsp_loss, reflow_loss = model(
+            ddsp_loss, reflow_loss, f0_loss = model(
                 data['units'], 
                 data['f0'], 
                 data['volume'], 
@@ -117,6 +119,7 @@ def test(args, model, vocoder, loader_test, saver):
                 t_start=args.model.t_start)
             test_ddsp_loss += ddsp_loss.item()
             test_reflow_loss += reflow_loss.item()
+            test_f0_loss += f0_loss.item()
             
             # log mel
             saver.log_spec(data['name'][0], data['mel'], mel)
@@ -161,6 +164,7 @@ def test(args, model, vocoder, loader_test, saver):
     # report
     test_ddsp_loss /= num_batches
     test_reflow_loss /= num_batches 
+    test_f0_loss /= num_batches
     mel_val_mse_all /= mel_val_mse_all_num
     mel_val_snr_all /= mel_val_mse_all_num
     mel_val_psnr_all /= mel_val_mse_all_num
@@ -169,6 +173,7 @@ def test(args, model, vocoder, loader_test, saver):
     # check
     print(' [test_ddsp_loss] test_ddsp_loss:', test_ddsp_loss)
     print(' [test_reflow_loss] test_reflow_loss:', test_reflow_loss)
+    print(' [test_f0_loss] test_f0_loss:', test_f0_loss)
     print(' Real Time Factor', np.mean(rtf_all))
     print(' Mel Val MSE', mel_val_mse_all)
     saver.log_value({
@@ -216,7 +221,10 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
         for batch_idx, data in enumerate(loader_train):
             saver.global_step_increment()
             optimizer.zero_grad()
-
+            
+            # CFG
+            drop_spk = random.random() < 0.15
+            
             # unpack data
             for k in data.keys():
                 if not k.startswith('name'):
@@ -224,39 +232,36 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
             
             # forward
             if dtype == torch.float32:
-                ddsp_loss, reflow_loss = model(data['units'].float(), data['f0'], data['volume'], data['spk_id'], 
-                                aug_shift=data['aug_shift'], vocoder=vocoder, gt_spec=data['mel'].float(), infer=False, t_start=args.model.t_start)
+                ddsp_loss, reflow_loss, f0_loss = model(data['units'].float(), data['f0'], data['volume'], data['spk_id'], 
+                                aug_shift=data['aug_shift'], vocoder=vocoder, gt_spec=data['mel'].float(), infer=False, t_start=args.model.t_start, drop_spk=drop_spk)
             else:
                 with autocast(device_type=args.device, dtype=dtype):
-                    ddsp_loss, reflow_loss=model(data['units'], data['f0'], data['volume'], data['spk_id'], 
-                                    aug_shift=data['aug_shift'], vocoder=vocoder, gt_spec=data['mel'].float(), infer=False, t_start=args.model.t_start)
+                    ddsp_loss, reflow_loss, f0_loss = model(data['units'], data['f0'], data['volume'], data['spk_id'], 
+                                    aug_shift=data['aug_shift'], vocoder=vocoder, gt_spec=data['mel'].float(), infer=False, t_start=args.model.t_start, drop_spk=drop_spk)
             
             # handle nan loss
-            if torch.isnan(ddsp_loss):
-                print(' [x] nan ddsp_loss ')
+            if torch.isnan(ddsp_loss) or torch.isnan(reflow_loss) or torch.isnan(f0_loss):
+                print(' [x] nan loss detected ')
                 optimizer.zero_grad()
-                del ddsp_loss
-                del reflow_loss
-                continue
-            elif torch.isnan(reflow_loss):
-                print(' [x] nan reflow_loss ')
-                optimizer.zero_grad()
-                del ddsp_loss
-                del reflow_loss
                 continue
             else:
-                loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss
+                loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss + 0.5 * f0_loss
                 # backpropagate
                 if dtype == torch.float32:
                     loss.backward()
                     optimizer.step()
+                    scheduler.step()
                 else:
                     scaler.scale(loss).backward()
                     scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                    scale_before = scaler.get_scale()
                     scaler.step(optimizer)
                     scaler.update()
-                scheduler.step()
+                    scale_after = scaler.get_scale()
+                    if scale_before <= scale_after:
+                        scheduler.step()
+                
                 
             # log loss
             if saver.global_step % args.train.interval_log == 0:
@@ -279,6 +284,7 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
                     'train/loss': loss.item(),
                     'train/ddsp_loss': ddsp_loss.item(),
                     'train/reflow_loss': reflow_loss.item(),
+                    'train/f0_loss': f0_loss.item(),
                     'train/lr': current_lr
                 })
             

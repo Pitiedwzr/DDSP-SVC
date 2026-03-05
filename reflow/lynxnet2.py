@@ -55,50 +55,70 @@ class Transpose(nn.Module):
 
 
 class LYNXNet2Block(nn.Module):
-    def __init__(self, dim, expansion_factor, kernel_size=31, dropout=0.):
+    def __init__(self, dim, expansion_factor=2, dim_global_cond=256, kernel_size=31, dilation=1, dropout=0.):
         super().__init__()
         inner_dim = int(dim * expansion_factor)
-        if float(dropout) > 0.:
-            _dropout = nn.Dropout(dropout)
-        else:
-            _dropout = nn.Identity()
-        self.net = nn.Sequential(
-            nn.LayerNorm(dim),
-            Transpose((1, 2)),
-            nn.Conv1d(dim, dim, kernel_size=kernel_size, padding=kernel_size // 2, groups=dim),
-            Transpose((1, 2)),
+        
+        self.norm = nn.LayerNorm(dim)
+        
+        # FiLM
+        self.film_proj = nn.Linear(dim_global_cond * 2, dim * 2)
+        nn.init.zeros_(self.film_proj.weight)
+        nn.init.zeros_(self.film_proj.bias)
+        
+        # Dilation
+        padding = (kernel_size - 1) * dilation // 2
+        self.conv = nn.Conv1d(dim, dim, kernel_size=kernel_size, padding=padding, dilation=dilation, groups=dim)
+        
+        # SwiGLU * 1 with 2 expansion_factor
+        self.ffn = nn.Sequential(
             nn.Linear(dim, inner_dim * 2),
             SwiGLU(),
-            nn.Linear(inner_dim, inner_dim * 2),
-            SwiGLU(),
             nn.Linear(inner_dim, dim),
-            _dropout
+            nn.Dropout(dropout) if float(dropout) > 0. else nn.Identity()
         )
 
-    def forward(self, x):
-        return x + self.net(x)
+    def forward(self, x, global_cond):
+        res = x
+        x = self.norm(x)
+        
+        # FiLM
+        film_params = self.film_proj(global_cond).unsqueeze(1) # [B, 1, 2*dim]
+        gamma, beta = film_params.chunk(2, dim=-1) # [B, 1, dim]
+        x = x * (1 + gamma) + beta
+        
+        x = x.transpose(1, 2)
+        x = self.conv(x)
+        x = x.transpose(1, 2)
+        
+        x = self.ffn(x)
+        return res + x
 
 
 class LYNXNet2(nn.Module):
-    def __init__(self, in_dims, dim_cond, n_layers=6, n_chans=512, n_dilates=1, dropout=0.):
+    def __init__(self, in_dims, dim_cond, dim_global_cond=256, n_layers=6, n_chans=512, expansion_factor=2, dropout=0.):
         """
         LYNXNet2(Linear Gated Depthwise Separable Convolution Network Version 2)
         """
         super().__init__()
         self.input_projection = nn.Linear(in_dims, n_chans)
         self.conditioner_projection = nn.Linear(dim_cond, n_chans)
+        
         self.diffusion_embedding = nn.Sequential(
             SinusoidalPosEmb(n_chans),
             nn.Linear(n_chans, n_chans * 4),
             nn.GELU(),
-            nn.Linear(n_chans * 4, n_chans),
+            nn.Linear(n_chans * 4, dim_global_cond),
         )
+        
         self.residual_layers = nn.ModuleList(
             [
                 LYNXNet2Block(
                     dim=n_chans, 
-                    expansion_factor=n_dilates, 
+                    expansion_factor=expansion_factor,
+                    dim_global_cond=dim_global_cond,
                     kernel_size=31,
+                    dilation=2 ** (i % 4), # 1, 2, 4, 8 loop
                     dropout=dropout
                 )
                 for i in range(n_layers)
@@ -108,7 +128,7 @@ class LYNXNet2(nn.Module):
         self.output_projection = nn.Linear(n_chans, in_dims)
         nn.init.zeros_(self.output_projection.weight)
     
-    def forward(self, spec, diffusion_step, cond):
+    def forward(self, spec, diffusion_step, cond, global_cond):
         """
         :param spec: [B, F, M, T]
         :param diffusion_step: [B, 1]
@@ -127,10 +147,12 @@ class LYNXNet2(nn.Module):
 
         x = self.input_projection(x.transpose(1, 2))
         x = x + self.conditioner_projection(cond.transpose(1, 2))
-        x = x + self.diffusion_embedding(diffusion_step).unsqueeze(1)
+        
+        time_emb = self.diffusion_embedding(diffusion_step)        # [B, dim_global_cond]
+        block_cond = torch.cat([global_cond, time_emb], dim=-1)    # [B, dim_global_cond]
         
         for layer in self.residual_layers:
-            x = layer(x)
+            x = layer(x, block_cond)
 
         # post-norm
         x = self.norm(x)

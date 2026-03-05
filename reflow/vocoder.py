@@ -169,6 +169,22 @@ class Unit2Wav(nn.Module):
         super().__init__()
         self.sampling_rate = sampling_rate
         self.block_size = block_size
+        
+        self.spk_embed = nn.Embedding(n_spk, 256)
+        self.unit_hidden_dim = n_unit
+        self.shared_unit_encoder = nn.Sequential(
+            nn.Conv1d(n_unit, self.unit_hidden_dim, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.Conv1d(self.unit_hidden_dim, self.unit_hidden_dim, kernel_size=3, padding=1)
+        )
+        self.f0_predictor = nn.Sequential(
+            nn.Conv1d(self.unit_hidden_dim + 256, 256, 3, padding=1), 
+            nn.SiLU(),
+            nn.Conv1d(256, 128, 3, padding=1),
+            nn.SiLU(),
+            nn.Conv1d(128, 1, 1) # [B, 1, T]
+        )
+
         self.ddsp_model = CombSubSuperFast(
                             sampling_rate, 
                             block_size, 
@@ -180,11 +196,20 @@ class Unit2Wav(nn.Module):
                             use_norm,
                             use_attention, 
                             use_pitch_aug)
-        self.reflow_model = RectifiedFlow(LYNXNet2(in_dims=out_dims, dim_cond=out_dims, n_layers=n_layers, n_chans=n_chans), out_dims=out_dims)
+        self.reflow_model = RectifiedFlow(
+            LYNXNet2(
+                in_dims=out_dims, 
+                dim_cond=out_dims,
+                dim_global_cond=256,           # (Spk Emb 维度)
+                n_layers=n_layers, 
+                n_chans=n_chans
+            ), 
+            out_dims=out_dims
+        )
 
     def forward(self, units, f0, volume, spk_id=None, spk_mix_dict=None, aug_shift=None, vocoder=None,
                 gt_spec=None, infer=True, return_wav=False, infer_step=10, method='euler', t_start=0.0, 
-                silence_front=0, use_tqdm=True):
+                silence_front=0, use_tqdm=True, cfg_scale=1.0, drop_spk=False):
         
         '''
         input: 
@@ -192,25 +217,53 @@ class Unit2Wav(nn.Module):
         return: 
             dict of B x n_frames x feat
         '''
-        ddsp_wav, hidden = self.ddsp_model(units, f0, volume, spk_id=spk_id, spk_mix_dict=spk_mix_dict, aug_shift=aug_shift, infer=infer)
+        if spk_mix_dict is not None:
+            spk_emb = torch.zeros((units.shape[0], 256), device=units.device)
+            for k, v in spk_mix_dict.items():
+                mix_id = torch.LongTensor(np.array([[int(k)]])).to(units.device)
+                spk_emb += self.spk_embed(mix_id.squeeze(-1)) * v
+        elif spk_id is not None:
+            spk_emb = self.spk_embed(spk_id.squeeze(-1)) 
+        else:
+            spk_emb = torch.zeros((units.shape[0], 256), device=units.device)
+            
+        # CFG only for reflow
+        reflow_spk_emb = torch.zeros_like(spk_emb) if drop_spk else spk_emb
+
+        if drop_spk:
+            spk_emb = torch.zeros_like(spk_emb)
+        null_spk_emb = torch.zeros_like(spk_emb) if infer else None
+        
+        units_t = units.transpose(1, 2)                   # [B, n_unit, T]
+        cleaned_units = self.shared_unit_encoder(units_t) # [B, n_unit, T]
+        cleaned_units_for_ddsp = cleaned_units.transpose(1, 2)
+        
+        ddsp_wav, hidden = self.ddsp_model(cleaned_units_for_ddsp, f0, volume, spk_id=spk_id, spk_mix_dict=spk_mix_dict, aug_shift=aug_shift, infer=infer)
+        
         start_frame = int(silence_front * self.sampling_rate / self.block_size)
         if vocoder is not None:
             ddsp_mel = vocoder.extract(ddsp_wav[:, start_frame * self.block_size:])
         else:
             ddsp_mel = None
-            
+
         if not infer:
             ddsp_loss = F.mse_loss(ddsp_mel, gt_spec)
+            
+            spk_emb_expanded = spk_emb.unsqueeze(-1).expand(-1, -1, cleaned_units.size(2)) 
+            f0_pred_input = torch.cat([cleaned_units, spk_emb_expanded], dim=1) # [B, unit_dim + 256, T]
+            
+            pred_f0 = self.f0_predictor(f0_pred_input).transpose(1, 2) # [B, T, 1]
+            f0_loss = F.l1_loss(pred_f0, f0)
+            
             if t_start < 1.0:
-                reflow_loss = self.reflow_model(ddsp_mel, gt_spec=gt_spec, t_start=t_start, infer=False)
+                reflow_loss = self.reflow_model(ddsp_mel, gt_spec=gt_spec, global_cond=reflow_spk_emb, t_start=t_start, infer=False)
             else:
-                reflow_loss = torch.tensor(0)
-            return ddsp_loss, reflow_loss
+                reflow_loss = torch.tensor(0.0, device=units.device)
+            return ddsp_loss, reflow_loss, f0_loss
         else:
-            if gt_spec is not None and ddsp_mel is None:
-                ddsp_mel = gt_spec
+            if gt_spec is not None and ddsp_mel is None: ddsp_mel = gt_spec
             if t_start < 1.0:
-                mel = self.reflow_model(ddsp_mel, gt_spec=ddsp_mel, infer=True, infer_step=infer_step, method=method, t_start=t_start, use_tqdm=use_tqdm)
+                mel = self.reflow_model(ddsp_mel, gt_spec=gt_spec, global_cond=spk_emb, infer=True, infer_step=infer_step, method=method, t_start=t_start, use_tqdm=use_tqdm, cfg_scale=cfg_scale, null_global_cond=null_spk_emb)
             else:
                 mel = ddsp_mel
             if return_wav:

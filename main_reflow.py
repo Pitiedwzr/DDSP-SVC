@@ -153,6 +153,14 @@ def parse_args(args=None, namespace=None):
         default=0.0,
         help="t_start | default: auto",
     )
+    parser.add_argument(
+        "-cfg",
+        "--cfg_scale",
+        type=float,
+        required=False,
+        default=1.0,
+        help="CFG scale for Classifier-Free Guidance | default: 1.0 (recommended: 1.5~3.0)",
+    )
     return parser.parse_args(args=args, namespace=namespace)
 
     
@@ -303,6 +311,8 @@ if __name__ == '__main__':
         if args.model.t_start is not None and t_start < args.model.t_start:
             t_start = args.model.t_start
             
+    cfg_scale = float(cmd.cfg_scale)
+    
     if infer_step > 0:
         print('Sampling method: '+ method)
         print('infer step: '+ str(infer_step))
@@ -333,7 +343,8 @@ if __name__ == '__main__':
                     vocoder=vocoder,
                     infer_step=infer_step, 
                     method=method,
-                    t_start=t_start)
+                    t_start=t_start,
+                    cfg_scale=cfg_scale)
             seg_output = vocoder.infer(seg_mel, seg_f0)
             seg_output *= mask[:, start_frame * args.data.block_size : (start_frame + seg_units.size(1)) * args.data.block_size]
             seg_output = seg_output.squeeze().cpu().numpy()

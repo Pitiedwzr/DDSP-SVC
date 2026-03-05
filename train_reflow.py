@@ -63,10 +63,11 @@ if __name__ == '__main__':
                     muon_args={'weight_decay': args.train.weight_decay}, 
                     adamw_args={'weight_decay': 0})
     initial_global_step, model, optimizer = utils.load_model(args.env.expdir, model, optimizer, device=args.device)
+    last_step = initial_global_step - 1
     for param_group in optimizer.param_groups:
         param_group['initial_lr'] = args.train.lr
-        param_group['lr'] = args.train.lr * args.train.gamma ** max((initial_global_step - 2) // args.train.decay_step, 0)
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=args.train.decay_step, gamma=args.train.gamma, last_epoch=initial_global_step-2)
+        param_group['lr'] = args.train.lr * args.train.gamma ** max((last_step) // args.train.decay_step, 0)
+    scheduler = lr_scheduler.StepLR(optimizer, step_size=args.train.decay_step, gamma=args.train.gamma, last_epoch=last_step)
                         
     # datas
     loader_train, loader_valid = get_data_loaders(args, whole_audio=False)
