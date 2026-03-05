@@ -6,8 +6,6 @@ import torch
 import librosa
 from logger.saver import Saver
 from logger import utils
-from torch import autocast
-from torch.cuda.amp import GradScaler
 from nsf_hifigan.nvSTFT import STFT
 
 def calculate_mel_snr(gt_mel, pred_mel):
@@ -194,32 +192,29 @@ def test(args, model, vocoder, loader_test, saver):
     return test_ddsp_loss, test_reflow_loss
 
 
-def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loader_train, loader_test):
+def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loader_train, loader_test, accelerator):
     # saver
-    saver = Saver(args, initial_global_step=initial_global_step)
+    saver = None
 
-    # model size
-    params_count = utils.get_network_paras_amount({'model': model})
-    saver.log_info('--- model size ---')
-    saver.log_info(params_count)
-    
-    # run
+    if accelerator.is_main_process:
+        saver = Saver(args, initial_global_step=initial_global_step)
+        params_count = utils.get_network_paras_amount({'model': accelerator.unwrap_model(model)})
+        saver.log_info('--- model size ---')
+        saver.log_info(params_count)
+        saver.log_info('======= start training =======')
+
     num_batches = len(loader_train)
     start_epoch = initial_global_step // num_batches
     model.train()
-    saver.log_info('======= start training =======')
-    scaler = GradScaler()
-    if args.train.amp_dtype == 'fp32':
-        dtype = torch.float32
-    elif args.train.amp_dtype == 'fp16':
-        dtype = torch.float16
-    elif args.train.amp_dtype == 'bf16':
-        dtype = torch.bfloat16
-    else:
-        raise ValueError(' [x] Unknown amp_dtype: ' + args.train.amp_dtype)
+
+    global_step = initial_global_step
+
     for epoch in range(start_epoch, args.train.epochs):
         for batch_idx, data in enumerate(loader_train):
-            saver.global_step_increment()
+            global_step += 1
+            if accelerator.is_main_process:
+                saver.global_step = global_step
+
             optimizer.zero_grad()
             
             # CFG
@@ -228,93 +223,67 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
             # unpack data
             for k in data.keys():
                 if not k.startswith('name'):
-                    data[k] = data[k].to(args.device)
+                    data[k] = data[k].to(accelerator.device)
             
             # forward
-            if dtype == torch.float32:
-                ddsp_loss, reflow_loss, f0_loss = model(data['units'].float(), data['f0'], data['volume'], data['spk_id'], 
-                                aug_shift=data['aug_shift'], vocoder=vocoder, gt_spec=data['mel'].float(), infer=False, t_start=args.model.t_start, drop_spk=drop_spk)
-            else:
-                with autocast(device_type=args.device, dtype=dtype):
-                    ddsp_loss, reflow_loss, f0_loss = model(data['units'], data['f0'], data['volume'], data['spk_id'], 
-                                    aug_shift=data['aug_shift'], vocoder=vocoder, gt_spec=data['mel'].float(), infer=False, t_start=args.model.t_start, drop_spk=drop_spk)
+            ddsp_loss, reflow_loss, f0_loss = model(
+                data['units'].float(), data['f0'], data['volume'], data['spk_id'], 
+                aug_shift=data['aug_shift'], vocoder=vocoder, 
+                gt_spec=data['mel'].float(), infer=False, 
+                t_start=args.model.t_start, drop_spk=drop_spk
+            )
             
             # handle nan loss
             if torch.isnan(ddsp_loss) or torch.isnan(reflow_loss) or torch.isnan(f0_loss):
-                print(' [x] nan loss detected ')
+                if accelerator.is_main_process:
+                    print(' [x] nan loss detected ')
                 optimizer.zero_grad()
                 continue
-            else:
-                loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss + 0.5 * f0_loss
-                # backpropagate
-                if dtype == torch.float32:
-                    loss.backward()
-                    optimizer.step()
-                    scheduler.step()
-                else:
-                    scaler.scale(loss).backward()
-                    scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                    scale_before = scaler.get_scale()
-                    scaler.step(optimizer)
-                    scaler.update()
-                    scale_after = scaler.get_scale()
-                    if scale_before <= scale_after:
-                        scheduler.step()
+
+            loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss + 0.5 * f0_loss
+            accelerator.backward(loss)
+
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 
-                
+            optimizer.step()
+
+            if not accelerator.optimizer_step_was_skipped:
+                scheduler.step()
+
             # log loss
-            if saver.global_step % args.train.interval_log == 0:
-                current_lr =  optimizer.param_groups[0]['lr']
+            if accelerator.is_main_process and global_step % args.train.interval_log == 0:
+                current_lr = optimizer.param_groups[0]['lr']
                 saver.log_info(
                     'epoch: {} | {:3d}/{:3d} | {} | batch/s: {:.2f} | lr: {:.6} | loss: {:.3f} | time: {} | step: {}'.format(
-                        epoch,
-                        batch_idx,
-                        num_batches,
-                        args.env.expdir,
+                        epoch, batch_idx, num_batches, args.env.expdir,
                         args.train.interval_log/saver.get_interval_time(),
-                        current_lr,
-                        loss.item(),
-                        saver.get_total_time(),
-                        saver.global_step
+                        current_lr, loss.item(), saver.get_total_time(), global_step
                     )
                 )
-                
                 saver.log_value({
-                    'train/loss': loss.item(),
-                    'train/ddsp_loss': ddsp_loss.item(),
-                    'train/reflow_loss': reflow_loss.item(),
-                    'train/f0_loss': f0_loss.item(),
+                    'train/loss': loss.item(), 'train/ddsp_loss': ddsp_loss.item(),
+                    'train/reflow_loss': reflow_loss.item(), 'train/f0_loss': f0_loss.item(),
                     'train/lr': current_lr
                 })
-            
-            # validation
-            if saver.global_step % args.train.interval_val == 0:
-                optimizer_save = optimizer if args.train.save_opt else None
-                
-                # save latest
-                saver.save_model(model, optimizer_save, postfix=f'{saver.global_step}')
-                last_val_step = saver.global_step - args.train.interval_val
-                if last_val_step % args.train.interval_force_save != 0:
-                    saver.delete_model(postfix=f'{last_val_step}')
-                
-                # run testing set
-                test_ddsp_loss, test_reflow_loss = test(args, model, vocoder, loader_test, saver)
-                test_loss = args.train.lambda_ddsp * test_ddsp_loss + test_reflow_loss
-                
-                # log loss
-                saver.log_info(
-                    ' --- <validation> --- \nloss: {:.3f}. '.format(
-                        test_loss,
-                    )
-                )
-                
-                saver.log_value({
-                    'validation/loss': test_loss,
-                    'validation/ddsp_loss': test_ddsp_loss,
-                    'validation/reflow_loss': test_reflow_loss
-                })
-                
-                model.train()
+            accelerator.wait_for_everyone()
 
-                          
+            # validation
+            if global_step % args.train.interval_val == 0:
+                if accelerator.is_main_process:
+                    optimizer_save = optimizer if args.train.save_opt else None
+                    unwrapped_model = accelerator.unwrap_model(model)
+                    
+                    saver.save_model(unwrapped_model, optimizer_save, postfix=f'{global_step}')
+                    last_val_step = global_step - args.train.interval_val
+                    if last_val_step % args.train.interval_force_save != 0:
+                        saver.delete_model(postfix=f'{last_val_step}')
+                    
+                    test_ddsp_loss, test_reflow_loss = test(args, unwrapped_model, vocoder, loader_test, saver)
+                    test_loss = args.train.lambda_ddsp * test_ddsp_loss + test_reflow_loss
+                    
+                    saver.log_info(' --- <validation> --- \nloss: {:.3f}. '.format(test_loss))
+                    saver.log_value({'validation/loss': test_loss, 'validation/ddsp_loss': test_ddsp_loss, 'validation/reflow_loss': test_reflow_loss})
+                
+                accelerator.wait_for_everyone()
+                model.train()
