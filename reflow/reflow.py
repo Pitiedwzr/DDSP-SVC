@@ -42,7 +42,34 @@ class RectifiedFlow(nn.Module):
         x += v_pred * dt
         t += dt
         return x, t
+
+    def sample_rk2(self, x, t, dt, cond, global_cond=None, cfg_scale=1.0, null_global_cond=None):
+        """
+        2nd-Order Runge-Kutta (Midpoint) Sampler.
+        Twice as fast as RK4, much higher quality than Euler.
+        """
+        def get_v(vx, vt):
+            v_cond = self.velocity_fn(vx, 1000 * vt, cond, global_cond)
+            if cfg_scale > 1.0 and null_global_cond is not None:
+                null_cond = torch.zeros_like(cond)
+                v_uncond = self.velocity_fn(vx, 1000 * vt, null_cond, null_global_cond)
+                return v_uncond + cfg_scale * (v_cond - v_uncond)
+            return v_cond
+
+        # Step 1: Calculate velocity at current point
+        v_1 = get_v(x, t)
         
+        # Step 2: Step HALFWAY forward and calculate velocity again
+        x_half = x + 0.5 * v_1 * dt
+        t_half = t + 0.5 * dt
+        v_2 = get_v(x_half, t_half)
+        
+        # Step 3: Take the full step using the halfway velocity
+        x += v_2 * dt
+        t += dt
+        
+        return x, t
+
     def sample_rk4(self, x, t, dt, cond, global_cond=None, cfg_scale=1.0, null_global_cond=None):
         def get_v(vx, vt):
             v_cond = self.velocity_fn(vx, 1000 * vt, cond, global_cond)
@@ -58,7 +85,7 @@ class RectifiedFlow(nn.Module):
         x += (k_1 + 2 * k_2 + 2 * k_3 + k_4) * dt / 6
         t += dt
         return x, t
-     
+
     def forward(self, 
                 condition, 
                 gt_spec=None, 
@@ -107,7 +134,10 @@ class RectifiedFlow(nn.Module):
                 iterator = tqdm(range(infer_step), desc='sample time step') if use_tqdm else range(infer_step)
                 for i in iterator:
                     x, t = self.sample_euler(x, t, dt, cond, global_cond, cfg_scale, null_global_cond)
-            
+            elif method == 'rk2':
+                iterator = tqdm(range(infer_step), desc='sample time step') if use_tqdm else range(infer_step)
+                for i in iterator:
+                    x, t = self.sample_rk2(x, t, dt, cond, global_cond, cfg_scale, null_global_cond)
             elif method == 'rk4':
                 iterator = tqdm(range(infer_step), desc='sample time step', total=infer_step) if use_tqdm else range(infer_step)
                 for i in iterator:
