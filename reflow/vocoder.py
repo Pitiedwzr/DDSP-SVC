@@ -217,27 +217,28 @@ class Unit2Wav(nn.Module):
         return: 
             dict of B x n_frames x feat
         '''
+        # 1. Calculate the TRUE speaker embedding
         if spk_mix_dict is not None:
-            spk_emb = torch.zeros((units.shape[0], 256), device=units.device)
+            true_spk_emb = torch.zeros((units.shape[0], 256), device=units.device)
             for k, v in spk_mix_dict.items():
                 mix_id = torch.LongTensor(np.array([[int(k)]])).to(units.device)
-                spk_emb += self.spk_embed(mix_id.squeeze(-1)) * v
+                true_spk_emb += self.spk_embed(mix_id.squeeze(-1)) * v
         elif spk_id is not None:
-            spk_emb = self.spk_embed(spk_id.squeeze(-1)) 
+            true_spk_emb = self.spk_embed(spk_id.squeeze(-1)) 
         else:
-            spk_emb = torch.zeros((units.shape[0], 256), device=units.device)
+            true_spk_emb = torch.zeros((units.shape[0], 256), device=units.device)
             
-        # CFG only for reflow
-        reflow_spk_emb = torch.zeros_like(spk_emb) if drop_spk else spk_emb
-
-        if drop_spk:
-            spk_emb = torch.zeros_like(spk_emb)
-        null_spk_emb = torch.zeros_like(spk_emb) if infer else None
+        # 2. Setup CFG embeddings
+        # We only zero out the embedding for the Reflow model during training.
+        reflow_spk_emb = torch.zeros_like(true_spk_emb) if drop_spk else true_spk_emb
+        # For inference CFG, we need a null condition
+        null_spk_emb = torch.zeros_like(true_spk_emb) if infer else None
         
         units_t = units.transpose(1, 2)                   # [B, n_unit, T]
         cleaned_units = self.shared_unit_encoder(units_t) # [B, n_unit, T]
         cleaned_units_for_ddsp = cleaned_units.transpose(1, 2)
         
+        # 3. Pass the TRUE spk_id to DDSP so it generates the correct voice base
         ddsp_wav, hidden = self.ddsp_model(cleaned_units_for_ddsp, f0, volume, spk_id=spk_id, spk_mix_dict=spk_mix_dict, aug_shift=aug_shift, infer=infer)
         
         start_frame = int(silence_front * self.sampling_rate / self.block_size)
@@ -246,24 +247,40 @@ class Unit2Wav(nn.Module):
         else:
             ddsp_mel = None
 
+        # 4. Fix the CFG Leak:
+        # If we are dropping the speaker (CFG), we should also hide the DDSP mel 
+        # from the Reflow model so it doesn't "cheat" by looking at the DDSP's timbre.
+        if drop_spk and ddsp_mel is not None:
+            reflow_cond_mel = torch.zeros_like(ddsp_mel)
+        else:
+            reflow_cond_mel = ddsp_mel
+
         if not infer:
             ddsp_loss = F.mse_loss(ddsp_mel, gt_spec)
             
-            spk_emb_expanded = spk_emb.unsqueeze(-1).expand(-1, -1, cleaned_units.size(2)) 
+            # 5. Use TRUE speaker embedding for F0 Predictor
+            spk_emb_expanded = true_spk_emb.unsqueeze(-1).expand(-1, -1, cleaned_units.size(2)) 
             f0_pred_input = torch.cat([cleaned_units, spk_emb_expanded], dim=1) # [B, unit_dim + 256, T]
             
             pred_f0 = self.f0_predictor(f0_pred_input).transpose(1, 2) # [B, T, 1]
             f0_loss = F.l1_loss(pred_f0, f0)
             
+            # 6. Use the CFG-dropped variables for Reflow
             if t_start < 1.0:
-                reflow_loss = self.reflow_model(ddsp_mel, gt_spec=gt_spec, global_cond=reflow_spk_emb, t_start=t_start, infer=False)
+                reflow_loss = self.reflow_model(
+                    condition=reflow_cond_mel, # Uses dropped mel if drop_spk=True
+                    gt_spec=gt_spec, 
+                    global_cond=reflow_spk_emb, # Uses dropped spk if drop_spk=True
+                    t_start=t_start, 
+                    infer=False
+                )
             else:
                 reflow_loss = torch.tensor(0.0, device=units.device)
             return ddsp_loss, reflow_loss, f0_loss
         else:
             if gt_spec is not None and ddsp_mel is None: ddsp_mel = gt_spec
             if t_start < 1.0:
-                mel = self.reflow_model(ddsp_mel, gt_spec=gt_spec, global_cond=spk_emb, infer=True, infer_step=infer_step, method=method, t_start=t_start, use_tqdm=use_tqdm, cfg_scale=cfg_scale, null_global_cond=null_spk_emb)
+                mel = self.reflow_model(ddsp_mel, gt_spec=gt_spec, global_cond=true_spk_emb, infer=True, infer_step=infer_step, method=method, t_start=t_start, use_tqdm=use_tqdm, cfg_scale=cfg_scale, null_global_cond=null_spk_emb)
             else:
                 mel = ddsp_mel
             if return_wav:
