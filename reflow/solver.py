@@ -132,30 +132,23 @@ def test(args, model, vocoder, loader_test, saver):
             audio = torch.from_numpy(audio).unsqueeze(0).to(signal)
             saver.log_audio({fn+'/gt.wav': audio, fn+'/pred.wav': signal})
 
-            WAV2MEL = STFT(
-                        sr=args.data.sampling_rate,
-                        n_mels=128,
-                        n_fft=2048,
-                        win_size=2048,
-                        hop_length=512,
-                        fmin=40,
-                        fmax=22050,
-                        clip_val=1e-5)
-            audio = audio.unsqueeze(0)
-            pre_mel = WAV2MEL.get_mel(signal[0, ...])
-            pre_mel = pre_mel.transpose(-1, -2)
-            gt_mel = WAV2MEL.get_mel(audio[0, ...])
-            gt_mel = gt_mel.transpose(-1, -2)
-            # 如果形状不同,裁剪使得形状相同
-            if pre_mel.shape[1] != gt_mel.shape[1]:
-                gt_mel = gt_mel[:, :pre_mel.shape[1], :]
+            # ==========================================
+            # FIX: Removed the dead WAV2MEL STFT code here.
+            # It was calculating pre_mel and gt_mel but never using them.
+            # ==========================================
 
+            # FIX: Match the actual bounds defined in reflow.py
+            spec_min = -12.0
+            spec_max = 2.0
+            spec_range = spec_max - spec_min # 14.0
+
+            # FIX: Correct Min-Max Normalization to [0, 1] range for accurate power math
+            gt_mel_norm = torch.clip(data['mel'], spec_min, spec_max)
+            gt_mel_norm = (gt_mel_norm - spec_min) / spec_range
+            pre_mel_norm = torch.clip(mel, spec_min, spec_max)
+            pre_mel_norm = (pre_mel_norm - spec_min) / spec_range
             # 计算指标
             mel_val_mse_all += torch.nn.functional.mse_loss(mel, data['mel']).detach().cpu().numpy()
-            gt_mel_norm = torch.clip(data['mel'], spec_min, spec_max)
-            gt_mel_norm = gt_mel_norm / spec_range + spec_min
-            pre_mel_norm = torch.clip(mel, spec_min, spec_max)
-            pre_mel_norm = pre_mel_norm / spec_range + spec_min
             mel_val_snr_all += calculate_mel_snr(gt_mel_norm, pre_mel_norm).detach().cpu().numpy()
             mel_val_psnr_all += calculate_mel_psnr(gt_mel_norm, pre_mel_norm).detach().cpu().numpy()
             mel_val_sisnr_all += calculate_mel_si_snr(gt_mel_norm, pre_mel_norm).detach().cpu().numpy()
