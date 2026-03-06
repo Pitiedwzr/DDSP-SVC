@@ -143,7 +143,7 @@ def parse_args(args=None, namespace=None):
         type=str,
         required=False,
         default='auto',
-        help="euler or rk4 | default: auto",
+        help="euler, rk2, or rk4 | default: auto",
     )
     parser.add_argument(
         "-ts",
