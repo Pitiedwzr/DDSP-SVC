@@ -50,9 +50,9 @@ train:
   interval_log: 1
   interval_val: 4000
   interval_force_save: 10000
-  lr: 0.0005
-  decay_step: 10000
-  gamma: 0.9
-  weight_decay: 0.1
+  lr: 0.0004
+  decay_step: 5000
+  gamma: 0.95
+  weight_decay: 0.01
   lambda_ddsp: 1
   save_opt: false  
