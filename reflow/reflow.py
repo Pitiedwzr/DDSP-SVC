@@ -41,7 +41,7 @@ class RectifiedFlow(nn.Module):
             v_pred = v_cond
             
         x += v_pred * dt
-        t += dt
+        t = t + dt
         return x, t
 
     def sample_rk2(self, x, t, dt, cond, global_cond=None, cfg_scale=1.0, null_global_cond=None):
@@ -67,7 +67,7 @@ class RectifiedFlow(nn.Module):
         
         # Step 3: Take the full step using the halfway velocity
         x += v_2 * dt
-        t += dt
+        t = t + dt
         
         return x, t
 
@@ -84,7 +84,7 @@ class RectifiedFlow(nn.Module):
         k_3 = get_v(x + 0.5 * k_2 * dt, t + 0.5 * dt)
         k_4 = get_v(x + k_3 * dt, t + dt)
         x += (k_1 + 2 * k_2 + 2 * k_3 + k_4) * dt / 6
-        t += dt
+        t = t + dt
         return x, t
 
     def forward(self, 
