@@ -34,8 +34,9 @@ class Unit2Control(nn.Module):
             use_pitch_aug=False):
         super().__init__()
         self.output_splits = output_splits
-        self.f0_embed = nn.Linear(1, dim_model)
-        self.phase_embed = nn.Linear(1, dim_model)
+        # Remove f0 and phase embedding, as they are not used in the current implementation
+        # self.f0_embed = nn.Linear(1, dim_model)
+        # self.phase_embed = nn.Linear(1, dim_model)
         self.volume_embed = nn.Linear(1, dim_model)
         self.n_spk = n_spk
         if n_spk is not None and n_spk > 1:
