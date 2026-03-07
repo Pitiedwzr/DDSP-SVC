@@ -222,8 +222,10 @@ class Unit2Wav(nn.Module):
             true_spk_emb = torch.zeros((units.shape[0], 256), device=units.device)
             for k, v in spk_mix_dict.items():
                 mix_id = torch.LongTensor(np.array([[int(k)]])).to(units.device)
+                # Subtract 1 here to map 1-based ID to 0-based PyTorch index
                 true_spk_emb += self.spk_embed(mix_id.squeeze(-1) - 1) * v
         elif spk_id is not None:
+            # Subtract 1 here as well
             true_spk_emb = self.spk_embed(spk_id.squeeze(-1) - 1) 
         else:
             true_spk_emb = torch.zeros((units.shape[0], 256), device=units.device)

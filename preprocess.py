@@ -177,20 +177,24 @@ def _process_file(file, path, sample_rate, hop_size, use_pitch_aug, extensions):
         # interpolate the unvoiced f0
         f0[uv] = np.interp(np.where(uv)[0], np.where(~uv)[0], f0[~uv])
 
-        # save npy     
+        # save npy as fp32 to save disk space
         os.makedirs(os.path.dirname(path_unitsfile), exist_ok=True)
-        np.save(path_unitsfile, units)
+        np.save(path_unitsfile, units.astype(np.float32))
+        
         os.makedirs(os.path.dirname(path_f0file), exist_ok=True)
-        np.save(path_f0file, f0)
+        np.save(path_f0file, f0.astype(np.float32))
+        
         os.makedirs(os.path.dirname(path_volumefile), exist_ok=True)
-        np.save(path_volumefile, volume)
+        np.save(path_volumefile, volume.astype(np.float32))
         if mel_extractor is not None:
             os.makedirs(os.path.dirname(path_melfile), exist_ok=True)
-            np.save(path_melfile, mel)
+            np.save(path_melfile, mel.astype(np.float32))
+            
             os.makedirs(os.path.dirname(path_augmelfile), exist_ok=True)
-            np.save(path_augmelfile, aug_mel)
+            np.save(path_augmelfile, aug_mel.astype(np.float32))
+            
             os.makedirs(os.path.dirname(path_augvolfile), exist_ok=True)
-            np.save(path_augvolfile, aug_vol)
+            np.save(path_augvolfile, aug_vol.astype(np.float32))
             return keyshift
     else:
         print('\n[Error] F0 extraction failed: ' + path_srcfile)

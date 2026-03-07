@@ -6,7 +6,7 @@ from optimizer.muon import Muon_AdamW
 from logger import utils
 from reflow.data_loaders import get_data_loaders
 from reflow.vocoder import Vocoder, Unit2Wav
-
+from accelerate import Accelerator
 
 def parse_args(args=None, namespace=None):
     """Parse command-line arguments."""
@@ -26,6 +26,12 @@ if __name__ == '__main__':
     
     # load config
     args = utils.load_config(cmd.config)
+
+    amp_type = args.train.amp_dtype if args.train.amp_dtype != 'fp32' else "no"
+    accelerator = Accelerator(mixed_precision=amp_type, split_batches=True)
+
+    args.device = accelerator.device
+
     print(' > config:', cmd.config)
     print(' >    exp:', args.env.expdir)
     
@@ -54,9 +60,7 @@ if __name__ == '__main__':
         raise ValueError(f" [x] Unknown Model: {args.model.type}")
     
     # device
-    if args.device == 'cuda':
-        torch.cuda.set_device(args.env.gpu_id)
-    model.to(args.device)
+    model.to(accelerator.device)
     
     # load parameters
     optimizer = Muon_AdamW(model, 
@@ -73,5 +77,8 @@ if __name__ == '__main__':
     loader_train, loader_valid = get_data_loaders(args, whole_audio=False)
     
     # run
-    train(args, initial_global_step, model, optimizer, scheduler, vocoder, loader_train, loader_valid)
+    model, optimizer, loader_train, scheduler = accelerator.prepare(
+        model, optimizer, loader_train, scheduler
+    )
+    train(args, initial_global_step, model, optimizer, scheduler, vocoder, loader_train, loader_valid, accelerator)
     
