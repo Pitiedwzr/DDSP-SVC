@@ -33,7 +33,7 @@ def traverse_dir(
 
     file_list = []
     cnt = 0
-    for root, _, files in os.walk(root_dir):
+    for root, _, files in os.walk(root_dir, followlinks=True):
         for file in files:
             if any([file.endswith(f".{ext}") for ext in extensions]):
                 # path
