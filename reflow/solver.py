@@ -218,45 +218,34 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
                 if not k.startswith('name'):
                     data[k] = data[k].to(accelerator.device)
             
-            # --- DDP SAFE TRY-EXCEPT BLOCK ---
-            error_flag = torch.tensor(0.0, device=accelerator.device)
+            # forward
+            ddsp_loss, reflow_loss, f0_loss = model(
+                data['units'].float(), data['f0'], data['volume'], data['spk_id'], 
+                aug_shift=data['aug_shift'], vocoder=vocoder, 
+                gt_spec=data['mel'].float(), infer=False, 
+                t_start=args.model.t_start, drop_spk=drop_spk
+            )
             
-            try:
-                # forward
-                ddsp_loss, reflow_loss, f0_loss = model(
-                    data['units'].float(), data['f0'], data['volume'], data['spk_id'], 
-                    aug_shift=data['aug_shift'], vocoder=vocoder, 
-                    gt_spec=data['mel'].float(), infer=False, 
-                    t_start=args.model.t_start, drop_spk=drop_spk
-                )
-                
-                # handle nan loss
-                if torch.isnan(ddsp_loss) or torch.isnan(reflow_loss) or torch.isnan(f0_loss):
-                    error_flag += 1.0
-            except Exception as e:
-                print(f" [!] GPU {accelerator.process_index} caught an error: {e}")
-                error_flag += 1.0
-                
-            # Synchronize the error flag across all GPUs
-            error_flag = accelerator.reduce(error_flag, reduction="sum")
-            
-            # If ANY GPU failed, ALL GPUs skip the batch together
-            if error_flag.item() > 0:
-                if accelerator.is_main_process:
-                    print(f" [x] Bad batch detected (NaN or Exception). Skipping step {global_step} on all GPUs to prevent timeout.")
-                optimizer.zero_grad()
-                continue
-            # ---------------------------------
-
-
             loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss + 0.5 * f0_loss
+
+            # Removed the "if isnan: continue" block completely
+            # When using accelerate, DO NOT zero_grad and DO NOT continue
+            if torch.isnan(loss) and accelerator.is_main_process:
+                print(' [!] NaN loss detected. Letting Accelerate auto-fix the scale...')
+
+            # Backward Pass
+            # If loss is NaN, this safely generates NaN gradients for the Scaler to catch.
             accelerator.backward(loss)
 
             if accelerator.sync_gradients:
                 accelerator.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 
+            # Optimizer Step
+            # The GradScaler intercepts the step here! If gradients are NaN, it safely 
+            # aborts the weight update and dynamically lowers the FP16 scale factor.
             optimizer.step()
 
+            # Step scheduler ONLY if the optimizer didn't skip due to NaNs
             if not accelerator.optimizer_step_was_skipped:
                 scheduler.step()
 
