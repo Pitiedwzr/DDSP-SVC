@@ -218,20 +218,36 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
                 if not k.startswith('name'):
                     data[k] = data[k].to(accelerator.device)
             
-            # forward
-            ddsp_loss, reflow_loss, f0_loss = model(
-                data['units'].float(), data['f0'], data['volume'], data['spk_id'], 
-                aug_shift=data['aug_shift'], vocoder=vocoder, 
-                gt_spec=data['mel'].float(), infer=False, 
-                t_start=args.model.t_start, drop_spk=drop_spk
-            )
+            # --- DDP SAFE TRY-EXCEPT BLOCK ---
+            error_flag = torch.tensor(0.0, device=accelerator.device)
             
-            # handle nan loss
-            if torch.isnan(ddsp_loss) or torch.isnan(reflow_loss) or torch.isnan(f0_loss):
+            try:
+                # forward
+                ddsp_loss, reflow_loss, f0_loss = model(
+                    data['units'].float(), data['f0'], data['volume'], data['spk_id'], 
+                    aug_shift=data['aug_shift'], vocoder=vocoder, 
+                    gt_spec=data['mel'].float(), infer=False, 
+                    t_start=args.model.t_start, drop_spk=drop_spk
+                )
+                
+                # handle nan loss
+                if torch.isnan(ddsp_loss) or torch.isnan(reflow_loss) or torch.isnan(f0_loss):
+                    error_flag += 1.0
+            except Exception as e:
+                print(f" [!] GPU {accelerator.process_index} caught an error: {e}")
+                error_flag += 1.0
+                
+            # Synchronize the error flag across all GPUs
+            error_flag = accelerator.reduce(error_flag, reduction="sum")
+            
+            # If ANY GPU failed, ALL GPUs skip the batch together
+            if error_flag.item() > 0:
                 if accelerator.is_main_process:
-                    print(' [x] nan loss detected ')
+                    print(f" [x] Bad batch detected (NaN or Exception). Skipping step {global_step} on all GPUs to prevent timeout.")
                 optimizer.zero_grad()
                 continue
+            # ---------------------------------
+
 
             loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss + 0.5 * f0_loss
             accelerator.backward(loss)
