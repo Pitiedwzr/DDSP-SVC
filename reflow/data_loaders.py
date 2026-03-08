@@ -234,14 +234,18 @@ class AudioDataset(Dataset):
             # get item
             data_dict = self.get_data(name_ext, data_buffer)
             
-            # --- THE SAFETY HACK ---
-            # If the random slice was pure silence or corrupted, the F0 or Volume becomes NaN or Infinity.
-            # This catches it BEFORE it goes to the GPU and causes the 4-Quintillion memory crash.
+            # --- EXPANDED SAFETY HACK ---
             if torch.isnan(data_dict['f0']).any() or torch.isinf(data_dict['f0']).any():
                 raise ValueError("NaN/Inf detected in f0 chunk")
                 
             if torch.isnan(data_dict['volume']).any() or torch.isinf(data_dict['volume']).any():
                 raise ValueError("NaN/Inf detected in volume chunk")
+                
+            if torch.isnan(data_dict['mel']).any() or torch.isinf(data_dict['mel']).any():
+                raise ValueError("NaN/Inf detected in mel chunk")
+                
+            if torch.isnan(data_dict['units']).any() or torch.isinf(data_dict['units']).any():
+                raise ValueError("NaN/Inf detected in units chunk")
                 
             return data_dict
             
