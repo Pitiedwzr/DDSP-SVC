@@ -1,6 +1,19 @@
 Language: **English** [简体中文](./cn_README.md)
 
-# DDSP-SVC
+# DDSP-SVC (Fork)
+
+## What's on this fork
+
+- DDP using Huggingface Accelerate
+- Fix incorrect implement of dilation
+- F0Predictor & Shared Encoder (Experiment)
+- Feature-Wise Linear Modulation (FiLM)
+- Classifier-Free Guidance (CFG)
+- Logit-Normal for t sample
+- RK2 (Midpoint) method
+- Remove unused code
+
+------
 
 ## 0. Introduction
 
