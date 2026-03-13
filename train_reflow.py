@@ -68,11 +68,40 @@ if __name__ == '__main__':
                     adamw_args={'weight_decay': 0})
     initial_global_step, model, optimizer = utils.load_model(args.env.expdir, model, optimizer, device=args.device)
     last_step = initial_global_step - 1
+    
+    # Read scheduler type from config, default to 'step' if not found
+    scheduler_type = getattr(args.train, 'lr_scheduler', 'step')
+    
     for param_group in optimizer.param_groups:
         param_group['initial_lr'] = args.train.lr
-        param_group['lr'] = args.train.lr * args.train.gamma ** max((last_step) // args.train.decay_step, 0)
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=args.train.decay_step, gamma=args.train.gamma, last_epoch=last_step)
+        if scheduler_type == 'step':
+            # Manual LR calc for StepLR resumption
+            param_group['lr'] = args.train.lr * args.train.gamma ** max((last_step) // getattr(args.train, 'decay_step', 5000), 0)
+        elif scheduler_type == 'cosine':
+            # CosineAnnealingLR calculates LR internally based on last_epoch
+            param_group['lr'] = args.train.lr
+
+    if scheduler_type == 'step':
+        scheduler = lr_scheduler.StepLR(
+            optimizer, 
+            step_size=getattr(args.train, 'decay_step', 5000), 
+            gamma=getattr(args.train, 'gamma', 0.95), 
+            last_epoch=last_step
+        )
+    elif scheduler_type == 'cosine':
+        t_max = getattr(args.train, 't_max', 200000) # Total training steps
+        eta_min = getattr(args.train, 'eta_min', 1e-6) # Minimum learning rate
+        scheduler = lr_scheduler.CosineAnnealingLR(
+            optimizer, 
+            T_max=t_max, 
+            eta_min=eta_min, 
+            last_epoch=last_step
+        )
+    else:
+        raise ValueError(f" [x] Unknown scheduler: {scheduler_type}")
                         
+    # datas
+
     # datas
     loader_train, loader_valid = get_data_loaders(args, whole_audio=False)
     
