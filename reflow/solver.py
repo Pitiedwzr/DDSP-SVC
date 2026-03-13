@@ -226,7 +226,7 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
                 t_start=args.model.t_start, drop_spk=drop_spk
             )
             
-            loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss + 0.5 * f0_loss
+            loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss + 0.1 * f0_loss
 
             # Removed the "if isnan: continue" block completely
             # When using accelerate, DO NOT zero_grad and DO NOT continue

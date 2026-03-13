@@ -264,8 +264,14 @@ class Unit2Wav(nn.Module):
             spk_emb_expanded = true_spk_emb.unsqueeze(-1).expand(-1, -1, cleaned_units.size(2)) 
             f0_pred_input = torch.cat([cleaned_units, spk_emb_expanded], dim=1) # [B, unit_dim + 256, T]
             
-            pred_f0 = self.f0_predictor(f0_pred_input).transpose(1, 2) # [B, T, 1]
-            f0_loss = F.l1_loss(pred_f0, f0)
+            # Predict Log-F0
+            pred_log_f0 = self.f0_predictor(f0_pred_input).transpose(1, 2) # [B, T, 1]
+            
+            # Ground Truth is already interpolated, so no zeros exist. Safe to take log!
+            gt_log_f0 = torch.log(f0)
+            
+            # Calculate L1 Loss
+            f0_loss = F.l1_loss(pred_log_f0, gt_log_f0)
             
             # 6. Use the CFG-dropped variables for Reflow
             if t_start < 1.0:
