@@ -223,14 +223,37 @@ class AudioDataset(Dataset):
                     raise
 
     def __getitem__(self, file_idx):
-        name_ext = self.paths[file_idx]
-        data_buffer = self.data_buffer[name_ext]
-        # check duration. if too short, then skip
-        if data_buffer['frame_len'] < self.crop_len:
-            return self.__getitem__( (file_idx + 1) % len(self.paths))
+        try:
+            name_ext = self.paths[file_idx]
+            data_buffer = self.data_buffer[name_ext]
             
-        # get item
-        return self.get_data(name_ext, data_buffer)
+            # check duration. if too short, raise error to trigger resample
+            if data_buffer['frame_len'] < self.crop_len:
+                raise ValueError("Audio too short")
+                
+            # get item
+            data_dict = self.get_data(name_ext, data_buffer)
+            
+            # --- EXPANDED SAFETY HACK ---
+            if torch.isnan(data_dict['f0']).any() or torch.isinf(data_dict['f0']).any():
+                raise ValueError("NaN/Inf detected in f0 chunk")
+                
+            if torch.isnan(data_dict['volume']).any() or torch.isinf(data_dict['volume']).any():
+                raise ValueError("NaN/Inf detected in volume chunk")
+                
+            if torch.isnan(data_dict['mel']).any() or torch.isinf(data_dict['mel']).any():
+                raise ValueError("NaN/Inf detected in mel chunk")
+                
+            if torch.isnan(data_dict['units']).any() or torch.isinf(data_dict['units']).any():
+                raise ValueError("NaN/Inf detected in units chunk")
+                
+            return data_dict
+            
+        except Exception as e:
+            # If ANY error happens (short audio, NaN pitch, file reading error), 
+            # we ignore it and instantly grab a completely new random file.
+            new_idx = random.randint(0, len(self.paths) - 1)
+            return self.__getitem__(new_idx)
 
     def get_data(self, name_ext, data_buffer):
         name = os.path.splitext(name_ext)[0]

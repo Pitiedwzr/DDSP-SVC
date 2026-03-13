@@ -77,8 +77,8 @@ if __name__ == '__main__':
     loader_train, loader_valid = get_data_loaders(args, whole_audio=False)
     
     # run
-    model, optimizer, loader_train, scheduler = accelerator.prepare(
-        model, optimizer, loader_train, scheduler
+    model, optimizer, loader_train = accelerator.prepare(
+        model, optimizer, loader_train
     )
     train(args, initial_global_step, model, optimizer, scheduler, vocoder, loader_train, loader_valid, accelerator)
     
