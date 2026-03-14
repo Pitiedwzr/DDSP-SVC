@@ -102,6 +102,7 @@ if __name__ == '__main__':
             div_factor=25.0,       # Start at lr / 25
             final_div_factor=1e4,  # End at a very tiny lr (similar to eta_min)
             anneal_strategy='cos', # Cosine curve
+            cycle_momentum=False,
             last_epoch=last_step
         )
     else:
