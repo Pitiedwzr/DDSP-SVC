@@ -185,7 +185,7 @@ def test(args, model, vocoder, loader_test, saver):
     return test_ddsp_loss, test_reflow_loss
 
 
-def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loader_train, loader_test, accelerator):
+def train(args, initial_global_step, model, ema_model, optimizer, scheduler, vocoder, loader_train, loader_test, accelerator):
     # saver
     saver = None
 
@@ -248,6 +248,7 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
             # Step scheduler ONLY if the optimizer didn't skip due to NaNs
             if not accelerator.optimizer_step_was_skipped:
                 scheduler.step()
+                ema_model.update_parameters(model)
 
             # log loss
             if accelerator.is_main_process and global_step % args.train.interval_log == 0:
@@ -272,7 +273,7 @@ def train(args, initial_global_step, model, optimizer, scheduler, vocoder, loade
                     optimizer_save = optimizer if args.train.save_opt else None
                     unwrapped_model = accelerator.unwrap_model(model)
                     
-                    saver.save_model(unwrapped_model, optimizer_save, postfix=f'{global_step}')
+                    saver.save_model(unwrapped_model, optimizer_save, postfix=f'{global_step}', ema_model=ema_model)
                     last_val_step = global_step - args.train.interval_val
                     if last_val_step % args.train.interval_force_save != 0:
                         saver.delete_model(postfix=f'{last_val_step}')

@@ -107,7 +107,8 @@ class Saver(object):
             optimizer,
             name='model',
             postfix='',
-            to_json=False):
+            to_json=False,
+            ema_model=None):
         # path
         if postfix:
             postfix = '_' + postfix
@@ -118,15 +119,16 @@ class Saver(object):
         print(' [*] model checkpoint saved: {}'.format(path_pt))
 
         # save
+        checkpoint = {
+            'global_step': self.global_step,
+            'model': model.state_dict()
+        }
         if optimizer is not None:
-            torch.save({
-                'global_step': self.global_step,
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict()}, path_pt)
-        else:
-            torch.save({
-                'global_step': self.global_step,
-                'model': model.state_dict()}, path_pt)
+            checkpoint['optimizer'] = optimizer.state_dict()
+        if ema_model is not None:
+            checkpoint['ema_model'] = ema_model.state_dict()
+
+        torch.save(checkpoint, path_pt)
             
         # to json
         if to_json:

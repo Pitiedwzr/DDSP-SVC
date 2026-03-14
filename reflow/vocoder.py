@@ -54,7 +54,16 @@ def load_model_vocoder(
     print(' [Loading] ' + model_path)
     ckpt = torch.load(model_path, map_location=torch.device(device), weights_only=False)
     model.to(device)
-    model.load_state_dict(ckpt['model'])
+    if 'ema_model' in ckpt:
+        print(' [*] Loading EMA weights...')
+        ema_dict = {}
+        # Strip the "module." prefix added by PyTorch AveragedModel
+        for k, v in ckpt['ema_model'].items():
+            ema_dict[k.replace('module.', '')] = v
+        model.load_state_dict(ema_dict)
+    else:
+        print(' [*] Loading standard weights (no EMA found)')
+        model.load_state_dict(ckpt['model'])
     model.eval()
     return model, vocoder, args
 

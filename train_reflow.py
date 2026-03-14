@@ -2,6 +2,7 @@ import os
 import argparse
 import torch
 from torch.optim import lr_scheduler
+from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 from optimizer.muon import Muon_AdamW
 from logger import utils
 from reflow.data_loaders import get_data_loaders
@@ -109,5 +110,6 @@ if __name__ == '__main__':
     model, optimizer, loader_train = accelerator.prepare(
         model, optimizer, loader_train
     )
-    train(args, initial_global_step, model, optimizer, scheduler, vocoder, loader_train, loader_valid, accelerator)
+    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))
+    train(args, initial_global_step, model, ema_model, optimizer, scheduler, vocoder, loader_train, loader_valid, accelerator)
     
