@@ -3,7 +3,7 @@ import gin
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.nn.utils import weight_norm
+from torch.nn.utils.parametrizations import weight_norm
 from .model_conformer_naive import ConformerNaiveEncoder
 
 
@@ -50,10 +50,12 @@ class Unit2Control(nn.Module):
                 weight_norm(nn.Conv1d(input_channel, 512, 3, 1, 1)),
                 nn.PReLU(num_parameters=512),
                 weight_norm(nn.Conv1d(512, dim_model, 3, 1, 1)))
+        
         self.stack2 = nn.Sequential(
                 weight_norm(nn.Conv1d(2 * block_size, 512, 3, 1, 1)),
                 nn.PReLU(num_parameters=512),
                 weight_norm(nn.Conv1d(512, dim_model, 3, 1, 1)))
+
         self.decoder = ConformerNaiveEncoder(
                 num_layers=num_layers,
                 num_heads=8,
