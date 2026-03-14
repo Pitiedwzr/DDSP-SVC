@@ -34,8 +34,8 @@ vocoder:
   ckpt: pretrain/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.ckpt
   type: nsf-hifigan
 infer:
-  infer_step: 50
-  method: 'euler' # 'euler', 'rk4'
+  infer_step: 25
+  method: 'rk2' # 'euler', 'rk2', 'rk4'
 env:
   expdir: /kaggle/working/exp/film-test
   gpu_id: 0
@@ -50,9 +50,15 @@ train:
   interval_log: 1
   interval_val: 2000
   interval_force_save: 4000
-  lr: 0.0004
-  decay_step: 5000
-  gamma: 0.95
-  weight_decay: 0.01
+  lr: 0.0005
+  lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
+  # Only for cosine
+  t_max: 300000           # Total training steps before reaching minimum LR
+  eta_min: 0.000001       # Minimum LR at the end of the cosine curve (1e-6)
+  # Only for steplr
+  decay_step: 5000        # Ignored when using 'cosine', safe to leave for backup
+  gamma: 0.9              # Ignored when using 'cosine', safe to leave for backup
+  # ------
+  weight_decay: 0.1
   lambda_ddsp: 1
   save_opt: false  

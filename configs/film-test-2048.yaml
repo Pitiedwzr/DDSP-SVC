@@ -53,7 +53,7 @@ train:
   lr: 0.0005
   lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
   # Only for cosine
-  t_max: 200000           # Total training steps before reaching minimum LR
+  t_max: 300000           # Total training steps before reaching minimum LR
   eta_min: 0.000001       # Minimum LR at the end of the cosine curve (1e-6)
   # Only for steplr
   decay_step: 5000        # Ignored when using 'cosine', safe to leave for backup
