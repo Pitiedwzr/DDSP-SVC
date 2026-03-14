@@ -35,7 +35,8 @@ class RectifiedFlow(nn.Module):
         v_cond = self.velocity_fn(x, 1000 * t, cond, global_cond)
         
         if cfg_scale > 1.0 and null_global_cond is not None:
-            v_uncond = self.velocity_fn(x, 1000 * t, cond, null_global_cond)
+            null_cond = torch.zeros_like(cond)
+            v_uncond = self.velocity_fn(x, 1000 * t, null_cond, null_global_cond)
             v_pred = v_uncond + cfg_scale * (v_cond - v_uncond)
         else:
             v_pred = v_cond
@@ -75,7 +76,8 @@ class RectifiedFlow(nn.Module):
         def get_v(vx, vt):
             v_cond = self.velocity_fn(vx, 1000 * vt, cond, global_cond)
             if cfg_scale > 1.0 and null_global_cond is not None:
-                v_uncond = self.velocity_fn(vx, 1000 * vt, cond, null_global_cond)
+                null_cond = torch.zeros_like(cond)
+                v_uncond = self.velocity_fn(vx, 1000 * vt, null_cond, null_global_cond)
                 return v_uncond + cfg_scale * (v_cond - v_uncond)
             return v_cond
 
