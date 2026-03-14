@@ -61,8 +61,8 @@ class LYNXNet2Block(nn.Module):
         
         self.norm = nn.LayerNorm(dim)
         
-        # FiLM
-        self.film_proj = nn.Linear(dim_global_cond * 2, dim * 2)
+        # FiLM -> AdaLN-Zero
+        self.film_proj = nn.Linear(dim_global_cond * 2, dim * 3)
         nn.init.zeros_(self.film_proj.weight)
         nn.init.zeros_(self.film_proj.bias)
         
@@ -82,17 +82,19 @@ class LYNXNet2Block(nn.Module):
         res = x
         x = self.norm(x)
         
-        # FiLM
-        film_params = self.film_proj(global_cond).unsqueeze(1) # [B, 1, 2*dim]
-        gamma, beta = film_params.chunk(2, dim=-1) # [B, 1, dim]
+        # FiLM -> AdaLN-Zero
+        film_params = self.film_proj(global_cond).unsqueeze(1) # [B, 1, 3*dim]
+        gamma, beta, alpha = film_params.chunk(3, dim=-1) # [B, 1, dim]
+        
         x = x * (1 + gamma) + beta
         
         x = x.transpose(1, 2)
         x = self.conv(x)
         x = x.transpose(1, 2)
-        
         x = self.ffn(x)
-        return res + x
+        
+        # Because alpha is initialized to 0, this block starts as a pure Identity function.
+        return res + x * alpha 
 
 
 class LYNXNet2(nn.Module):
