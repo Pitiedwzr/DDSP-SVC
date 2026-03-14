@@ -50,7 +50,7 @@ train:
   interval_log: 1
   interval_val: 2000
   interval_force_save: 4000
-  lr: 0.0005
+  lr: 0.0003
   lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
   # Only for cosine
   t_max: 300000           # Total training steps before reaching minimum LR

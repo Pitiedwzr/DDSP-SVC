@@ -90,12 +90,18 @@ if __name__ == '__main__':
             last_epoch=last_step
         )
     elif scheduler_type == 'cosine':
-        t_max = getattr(args.train, 't_max', 200000) # Total training steps
+        t_max = getattr(args.train, 't_max', 300000) # Total training steps
         eta_min = getattr(args.train, 'eta_min', 1e-6) # Minimum learning rate
-        scheduler = lr_scheduler.CosineAnnealingLR(
+        
+        # Switch to OneCycleLR for Warmup + Cosine Decay
+        scheduler = lr_scheduler.OneCycleLR(
             optimizer, 
-            T_max=t_max, 
-            eta_min=eta_min, 
+            max_lr=args.train.lr,
+            total_steps=t_max,
+            pct_start=0.05,        # 5% of training is Warmup
+            div_factor=25.0,       # Start at lr / 25
+            final_div_factor=1e4,  # End at a very tiny lr (similar to eta_min)
+            anneal_strategy='cos', # Cosine curve
             last_epoch=last_step
         )
     else:
