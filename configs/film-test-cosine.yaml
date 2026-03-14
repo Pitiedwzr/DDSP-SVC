@@ -22,8 +22,8 @@ model:
   win_length: 2048
   n_aux_layers: 6
   n_aux_chans: 512
-  n_layers: 10
-  n_chans: 2048
+  n_layers: 6
+  n_chans: 1024
   t_start: 0.0
   use_norm: true
   use_attention: false
