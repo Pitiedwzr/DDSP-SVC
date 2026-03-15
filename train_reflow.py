@@ -66,7 +66,7 @@ if __name__ == '__main__':
     # load parameters
     optimizer = Muon_AdamW(model, 
                     muon_args={'weight_decay': args.train.weight_decay}, 
-                    adamw_args={'weight_decay': 0})
+                    adamw_args={'weight_decay': 0.01})
     initial_global_step, model, optimizer = utils.load_model(args.env.expdir, model, optimizer, device=args.device)
     last_step = initial_global_step - 1
     
