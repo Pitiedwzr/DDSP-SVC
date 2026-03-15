@@ -55,6 +55,8 @@ train:
   # Only for cosine
   t_max: 300000           # Total training steps before reaching minimum LR
   eta_min: 0.000001       # Minimum LR at the end of the cosine curve (1e-6)
+  div_factor: 25
+  final_div_factor: 10000
   # Only for steplr
   decay_step: 5000        # Ignored when using 'cosine', safe to leave for backup
   gamma: 0.9              # Ignored when using 'cosine', safe to leave for backup

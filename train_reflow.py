@@ -72,6 +72,8 @@ if __name__ == '__main__':
     
     # Read scheduler type from config, default to 'step' if not found
     scheduler_type = getattr(args.train, 'lr_scheduler', 'step')
+    div_factor = getattr(args.train, 'div_factor', 25.0)
+    final_div_factor = getattr(args.train, 'final_div_factor', 10000.0)
     
     for param_group in optimizer.param_groups:
         param_group['initial_lr'] = args.train.lr
@@ -80,6 +82,9 @@ if __name__ == '__main__':
             param_group['lr'] = args.train.lr * args.train.gamma ** max((last_step) // getattr(args.train, 'decay_step', 5000), 0)
         elif scheduler_type == 'cosine':
             # CosineAnnealingLR calculates LR internally based on last_epoch
+            param_group['max_lr'] = args.train.lr
+            param_group['initial_lr'] = args.train.lr / div_factor
+            param_group['min_lr'] = (args.train.lr / div_factor) / final_div_factor
             param_group['lr'] = args.train.lr
 
     if scheduler_type == 'step':
@@ -99,8 +104,8 @@ if __name__ == '__main__':
             max_lr=args.train.lr,
             total_steps=t_max,
             pct_start=0.05,        # 5% of training is Warmup
-            div_factor=25.0,       # Start at lr / 25
-            final_div_factor=1e4,  # End at a very tiny lr (similar to eta_min)
+            div_factor=div_factor,
+            final_div_factor=final_div_factor,
             anneal_strategy='cos', # Cosine curve
             cycle_momentum=False,
             last_epoch=last_step
