@@ -1,0 +1,66 @@
+data:
+  f0_extractor: 'rmvpe' # 'parselmouth', 'dio', 'harvest', 'crepe' or 'rmvpe'
+  f0_min: 65 # about C2
+  f0_max: 800 # about G5
+  sampling_rate: 44100
+  volume_smooth_size: 1024
+  block_size: 512 # Equal to hop_length
+  duration: 2 # Audio duration during training, must be less than the duration of the shortest audio clip
+  encoder: 'contentvec768l12tta2x' # 'hubertsoft', 'contentvec768l12', 'contentvec768l12tta2x' or 'cnhubertsoftfish'
+  cnhubertsoft_gate: 10
+  encoder_sample_rate: 16000
+  encoder_hop_size: 160 # 160 for 'contentvec768l12tta2x', 320 for any others
+  encoder_out_channels: 768 # 256 if using 'hubertsoft'
+  encoder_ckpt: pretrain/contentvec/pytorch_model.bin
+  train_path: /kaggle/temp/DDSP-SVC/data/train # Create a folder named "audio" under this path and put the audio clip in it
+  valid_path: /kaggle/temp/DDSP-SVC/data/val # Create a folder named "audio" under this path and put the audio clip in it
+  extensions: # List of extension included in the data collection
+    - wav
+    - flac
+model:
+  type: 'RectifiedFlow'
+  win_length: 2048
+  n_aux_layers: 6
+  n_aux_chans: 512
+  n_layers: 6
+  n_chans: 1024
+  t_start: 0.0
+  use_norm: true
+  use_attention: false
+  use_pitch_aug: true 
+  n_spk: 76 # max number of different speakers
+device: cuda # training device
+vocoder:
+  ckpt: pretrain/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.ckpt
+  type: nsf-hifigan
+infer:
+  infer_step: 25
+  method: 'rk2' # 'euler', 'rk2', 'rk4'
+env:
+  expdir: /kaggle/working/exp/film-low-lr
+  gpu_id: 0
+train:
+  num_workers: 4 # If your cpu and gpu are both very strong, set to 0 may be faster!
+  amp_dtype: fp16 # fp32, fp16 or bf16 (fp16 or bf16 may be faster if it is supported by your gpu)
+  batch_size: 192
+  cache_all_data: false # Save Internal-Memory or Graphics-Memory if it is false, but may be slow
+  cache_device: 'cpu' # Set to 'cuda' to cache the data into the Graphics-Memory, fastest speed for strong gpu
+  cache_fp16: true
+  epochs: 100000
+  interval_log: 1
+  interval_val: 2000
+  interval_force_save: 4000
+  lr: 0.0001
+  lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
+  # Only for cosine
+  t_max: 100000           # Total training steps before reaching minimum LR
+  eta_min: 0.000001       # Minimum LR at the end of the cosine curve (1e-6)
+  div_factor: 25
+  final_div_factor: 10000
+  # Only for steplr
+  decay_step: 5000        # Ignored when using 'cosine', safe to leave for backup
+  gamma: 0.9              # Ignored when using 'cosine', safe to leave for backup
+  # ------
+  weight_decay: 0.1
+  lambda_ddsp: 1
+  save_opt: false  
