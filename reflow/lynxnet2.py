@@ -16,8 +16,6 @@ class SwiGLU(nn.Module):
         # Using torch.split instead of chunk for ONNX export compatibility.
         out, gate = torch.split(x, x.size(self.dim) // 2, dim=self.dim)
         gate = F.silu(gate)
-        if x.dtype == torch.float16:
-            return (out.float() * gate.float()).clamp(min=-65500.0, max=65500.0).half()
         return out * gate
 
 
