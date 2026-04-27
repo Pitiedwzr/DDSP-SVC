@@ -284,7 +284,7 @@ def train(args, initial_global_step, model, ema_model, optimizer, scheduler, voc
                     if last_val_step % args.train.interval_force_save != 0:
                         saver.delete_model(postfix=f'{last_val_step}')
                     
-                    test_ddsp_loss, test_reflow_loss = test(args, unwrapped_model, vocoder, loader_test, saver)
+                    test_ddsp_loss, test_reflow_loss = test(args, ema_model, vocoder, loader_test, saver)
                     test_loss = args.train.lambda_ddsp * test_ddsp_loss + test_reflow_loss
                     
                     saver.log_info(' --- <validation> --- \nloss: {:.3f}. '.format(test_loss))
