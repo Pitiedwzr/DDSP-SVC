@@ -6,7 +6,6 @@ import torch
 import librosa
 from logger.saver import Saver
 from logger import utils
-from nsf_hifigan.nvSTFT import STFT
 
 def calculate_mel_snr(gt_mel, pred_mel):
     # 计算误差图像
