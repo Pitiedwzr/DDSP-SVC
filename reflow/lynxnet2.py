@@ -28,7 +28,7 @@ class SwiGLU(nn.Module):
                 return (out * gate).clamp(-1000 * ratio, 1000 * ratio) / ratio
         return out * gate
 
-       
+
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -57,7 +57,6 @@ class Transpose(nn.Module):
 class LYNXNet2Block(nn.Module):
     def __init__(self, dim, expansion_factor=2, dim_global_cond=256, kernel_size=31, dilation=1, dropout=0.):
         super().__init__()
-        inner_dim = int(dim * expansion_factor)
         
         self.norm = nn.LayerNorm(dim)
         
@@ -65,13 +64,18 @@ class LYNXNet2Block(nn.Module):
         self.film_proj = nn.Linear(dim_global_cond * 2, dim * 3)
         nn.init.zeros_(self.film_proj.weight)
         nn.init.zeros_(self.film_proj.bias)
+
+        # Spatial Gating Projections
+        self.proj_v = nn.Linear(dim, dim)
+        self.proj_gate = nn.Linear(dim, dim)
         
         # Dilation
         padding = (kernel_size - 1) * dilation // 2
         self.conv = nn.Conv1d(dim, dim, kernel_size=kernel_size, padding=padding, dilation=dilation, groups=dim)
         
-        # SwiGLU * 1 with 2 expansion_factor
-        self.ffn = nn.Sequential(
+        # Single Clean MLP
+        inner_dim = int(dim * expansion_factor)
+        self.mlp = nn.Sequential(
             nn.Linear(dim, inner_dim * 2),
             SwiGLU(),
             nn.Linear(inner_dim, dim),
@@ -87,11 +91,17 @@ class LYNXNet2Block(nn.Module):
         gamma, beta, alpha = film_params.chunk(3, dim=-1) # [B, 1, dim]
         
         x = x * (1 + gamma) + beta
-        
-        x = x.transpose(1, 2)
-        x = self.conv(x)
-        x = x.transpose(1, 2)
-        x = self.ffn(x)
+
+        # Spatial Gating
+        v = self.proj_v(x)
+        gate = x.transpose(1, 2)
+        gate = self.conv(gate)
+        gate = gate.transpose(1, 2)
+        gate = self.proj_gate(gate)
+
+        x = v * torch.atan(gate)
+
+        x = self.mlp(x)
         
         # Because alpha is initialized to 0, this block starts as a pure Identity function.
         return res + x * alpha 
