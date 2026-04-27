@@ -46,7 +46,8 @@ def calculate_mel_psnr(gt_mel, pred_mel):
     # 计算误差图像的均方误差
     mse = torch.mean(error_image ** 2)
     # 计算参考图像的最大可能功率
-    max_power = torch.max(gt_mel) ** 2
+    # FIX: gt_mel is already normalized to [0, 1], so max_power is exactly 1.0^2
+    max_power = 1.0
     # 计算并返回PSNR
     psnr = 10 * torch.log10(max_power / mse)
     return psnr
