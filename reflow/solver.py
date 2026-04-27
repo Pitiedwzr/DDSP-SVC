@@ -152,10 +152,10 @@ def test(args, model, vocoder, loader_test, saver):
             pre_mel_norm = torch.clip(mel, spec_min, spec_max)
             pre_mel_norm = (pre_mel_norm - spec_min) / spec_range
             # 计算指标
-            mel_val_mse_all += torch.nn.functional.mse_loss(mel, data['mel']).detach().cpu().numpy()
-            mel_val_snr_all += calculate_mel_snr(gt_mel_norm, pre_mel_norm).detach().cpu().numpy()
-            mel_val_psnr_all += calculate_mel_psnr(gt_mel_norm, pre_mel_norm).detach().cpu().numpy()
-            mel_val_sisnr_all += calculate_mel_si_snr(gt_mel_norm, pre_mel_norm).detach().cpu().numpy()
+            mel_val_mse_all += torch.nn.functional.mse_loss(mel, data['mel']).item()
+            mel_val_snr_all += calculate_mel_snr(gt_mel_norm, pre_mel_norm).item()
+            mel_val_psnr_all += calculate_mel_psnr(gt_mel_norm, pre_mel_norm).item()
+            mel_val_sisnr_all += calculate_mel_si_snr(gt_mel_norm, pre_mel_norm).item()
             mel_val_mse_all_num += 1
             
     # report
