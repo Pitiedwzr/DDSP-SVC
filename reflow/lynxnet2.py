@@ -36,16 +36,6 @@ class SinusoidalPosEmb(nn.Module):
         return emb
 
 
-class Transpose(nn.Module):
-    def __init__(self, dims):
-        super().__init__()
-        assert len(dims) == 2, 'dims must be a tuple of two dimensions'
-        self.dims = dims
-
-    def forward(self, x):
-        return x.transpose(*self.dims)
-
-
 class LYNXNet2Block(nn.Module):
     def __init__(self, dim, expansion_factor=2, dim_global_cond=256, kernel_size=31, dilation=1, dropout=0.):
         super().__init__()
