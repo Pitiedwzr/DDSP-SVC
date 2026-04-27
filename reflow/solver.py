@@ -13,25 +13,30 @@ def calculate_mel_snr(gt_mel, pred_mel):
     error_image = gt_mel - pred_mel
     # 计算参考图像的平方均值
     mean_square_reference = torch.mean(gt_mel ** 2)
-    # 计算误差图像的方差
-    variance_error = torch.var(error_image)
+    # Use mse instead of var
+    noise_power = torch.mean(error_image ** 2)
     # 计算并返回SNR
-    snr = 10 * torch.log10((mean_square_reference + 1e-9) / (variance_error + 1e-9))
+    snr = 10 * torch.log10((mean_square_reference + 1e-9) / (noise_power + 1e-9))
     return snr
 
 
-def calculate_mel_si_snr(gt_mel, pred_mel):
-    # 将测试图像按比例调整以最小化误差
-    scale = torch.sum(gt_mel * pred_mel) / torch.sum(gt_mel ** 2)
-    test_image_scaled = scale * pred_mel
-    # 计算误差图像
-    error_image = gt_mel - test_image_scaled
-    # 计算参考图像的平方均值
-    mean_square_reference = torch.mean(gt_mel ** 2)
-    # 计算误差图像的方差
-    variance_error = torch.var(error_image)
-    # 计算并返回SI-SNR
-    si_snr = 10 * torch.log10(mean_square_reference / variance_error)
+def calculate_mel_si_snr(gt_mel, pred_mel, eps=1e-9):
+    # 1. Calculate the scaling factor
+    # scale = dot(gt, pred) / energy(gt)
+    scale = torch.sum(gt_mel * pred_mel) / (torch.sum(gt_mel ** 2) + eps)
+
+    # 2. Scale the GROUND TRUTH (not the prediction) to get the target signal
+    target_signal = scale * gt_mel
+
+    # 3. Calculate the noise/error image
+    error_image = pred_mel - target_signal
+
+    # 4. Calculate power using Mean Squared Error (Fixing the variance bug)
+    power_target = torch.mean(target_signal ** 2)
+    power_error = torch.mean(error_image ** 2)
+
+    # 5. Calculate SI-SNR
+    si_snr = 10 * torch.log10((power_target + eps) / (power_error + eps))
     return si_snr
 
 
