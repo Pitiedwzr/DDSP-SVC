@@ -164,7 +164,7 @@ class AudioDataset(Dataset):
                     raise ValueError(' [x] Muiti-speaker training error : spk_id must be a positive integer from 1 to n_spk ')
             else:
                 spk_id = 1
-            spk_id = torch.LongTensor(np.array([spk_id])).to(device)
+            spk_id = torch.tensor([spk_id], dtype=torch.long, device=device)
 
             path_mel = os.path.join(self.path_root, 'mel', name_ext) + '.npy'
             path_augmel = os.path.join(self.path_root, 'aug_mel', name_ext) + '.npy'
@@ -298,7 +298,7 @@ class AudioDataset(Dataset):
         spk_id = data_buffer.get('spk_id')
         
         # load shift
-        aug_shift = torch.from_numpy(np.array([[aug_shift]])).float()
+        aug_shift = torch.tensor([[aug_shift]], dtype=torch.float32)
         
         return dict(mel=mel, f0=f0_frames, volume=volume_frames, units=units, spk_id=spk_id, aug_shift=aug_shift, name=name, name_ext=name_ext)
 
