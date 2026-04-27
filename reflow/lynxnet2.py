@@ -17,15 +17,7 @@ class SwiGLU(nn.Module):
         out, gate = torch.split(x, x.size(self.dim) // 2, dim=self.dim)
         gate = F.silu(gate)
         if x.dtype == torch.float16:
-            out_min, out_max = torch.aminmax(out.detach())
-            gate_min, gate_max = torch.aminmax(gate.detach())
-            max_abs_out = torch.max(-out_min, out_max).float()
-            max_abs_gate = torch.max(-gate_min, gate_max).float()
-            max_abs_value = max_abs_out * max_abs_gate
-            if max_abs_value > 1000:
-                ratio = (1000 / max_abs_value).half()
-                gate *= ratio
-                return (out * gate).clamp(-1000 * ratio, 1000 * ratio) / ratio
+            return (out.float() * gate.float()).clamp(min=-65500.0, max=65500.0).half()
         return out * gate
 
 
