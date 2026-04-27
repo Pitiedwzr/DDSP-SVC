@@ -124,7 +124,7 @@ class RectifiedFlow(nn.Module):
             # initial condition and step size of the ODE
             if gt_spec is None:
                 x = torch.randn(shape, device=device)
-                t = torch.full((b,), 0, device=device)
+                t = torch.zeros((b,), device=device)
                 dt = 1.0 / infer_step 
             else:
                 norm_spec = self.norm_spec(gt_spec)
