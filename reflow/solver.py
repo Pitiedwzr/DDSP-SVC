@@ -253,7 +253,7 @@ def train(args, initial_global_step, model, ema_model, optimizer, scheduler, voc
             # Step scheduler ONLY if the optimizer didn't skip due to NaNs
             if not accelerator.optimizer_step_was_skipped:
                 scheduler.step()
-                ema_model.update_parameters(model)
+                ema_model.update_parameters(accelerator.unwrap_model(model))
 
             # log loss
             if accelerator.is_main_process and global_step % args.train.interval_log == 0:

@@ -117,11 +117,12 @@ if __name__ == '__main__':
 
     # datas
     loader_train, loader_valid = get_data_loaders(args, whole_audio=False)
-    
+
+    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))
     # run
     model, optimizer, loader_train = accelerator.prepare(
         model, optimizer, loader_train
     )
-    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))
+
     train(args, initial_global_step, model, ema_model, optimizer, scheduler, vocoder, loader_train, loader_valid, accelerator)
     
