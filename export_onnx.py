@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from torch.nn.utils import weight_norm
 from reflow.reflow import RectifiedFlow
-from reflow.lynxnet2 import LYNXNet2
+from reflow.lynxnet2adaln import LYNXNet2AdaLN
 from ddsp.model_conformer_naive import ConformerNaiveEncoder
 from onnxruntime import InferenceSession
 from nsf_hifigan.nvSTFT import STFT
@@ -626,7 +626,7 @@ class Unit2Wav(nn.Module):
                             use_attention, 
                             use_pitch_aug,
                             f0_min)
-        self.reflow_model = RectifiedFlow(LYNXNet2(in_dims=out_dims, dim_cond=out_dims, n_layers=n_layers, n_chans=n_chans), out_dims=out_dims)
+        self.reflow_model = RectifiedFlow(LYNXNet2AdaLN(in_dims=out_dims, dim_cond=out_dims, n_layers=n_layers, n_chans=n_chans), out_dims=out_dims)
 
 
 class DotDict(dict):

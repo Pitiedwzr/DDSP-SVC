@@ -8,7 +8,7 @@ from nsf_hifigan.nvSTFT import STFT
 from nsf_hifigan.models import load_model,load_config
 from torchaudio.transforms import Resample
 from .reflow import RectifiedFlow
-from .lynxnet2 import LYNXNet2
+from .lynxnet2adaln import LYNXNet2AdaLN
 from ddsp.vocoder import CombSubSuperFast
 
 class DotDict(dict):
@@ -210,7 +210,7 @@ class Unit2Wav(nn.Module):
             use_attention,
             use_pitch_aug)
         self.reflow_model = RectifiedFlow(
-            LYNXNet2(
+            LYNXNet2AdaLN(
                 in_dims=out_dims,
                 dim_cond=out_dims,
                 dim_global_cond=256,           # (Spk Emb 维度)

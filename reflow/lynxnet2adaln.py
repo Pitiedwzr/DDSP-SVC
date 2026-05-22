@@ -57,7 +57,7 @@ class SinusoidalPosEmb(nn.Module):
         return emb
 
 
-class LYNXNet2Block(nn.Module):
+class LYNXNet2AdaLNBlock(nn.Module):
     def __init__(self, dim, expansion_factor=2, dim_global_cond=256, kernel_size=31, dilation=1, dropout=0.):
         super().__init__()
 
@@ -108,7 +108,7 @@ class LYNXNet2Block(nn.Module):
         return res + x * alpha
 
 
-class LYNXNet2(nn.Module):
+class LYNXNet2AdaLN(nn.Module):
     def __init__(self, in_dims, dim_cond, dim_global_cond=256, n_layers=6, n_chans=512, expansion_factor=2, dropout=0.):
         """
         LYNXNet2(Linear Gated Depthwise Separable Convolution Network Version 2)
@@ -126,7 +126,7 @@ class LYNXNet2(nn.Module):
 
         self.residual_layers = nn.ModuleList(
             [
-                LYNXNet2Block(
+                LYNXNet2AdaLNBlock(
                     dim=n_chans,
                     expansion_factor=expansion_factor,
                     dim_global_cond=dim_global_cond,
