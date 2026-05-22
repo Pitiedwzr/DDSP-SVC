@@ -4,14 +4,20 @@ Language: **English** [简体中文](./cn_README.md)
 
 ## What's on this fork
 
-- DDP using Huggingface Accelerate
-- Fix incorrect implement of dilation
-- F0Predictor & Shared Encoder (Experiment)
+### Backbone (LYNXNet2AdaLN)
+- Add cyclical dilation
 - AdaLN-Zero
-- Classifier-Free Guidance (CFG)
+- Spatial Gating (from [LYNXNet2Plus](https://github.com/KakaruHayate/DiffSinger/tree/lynxnet2attn) by KakaruHayate)
+- Optimised 1D-specific operations
+
+### Model
+- F0Predictor & Shared Encoder (Experiment)
+- Classifier-Free Guidance
 - Logit-Normal for t sample
+
+### Training & Inferring
+- DDP using Huggingface Accelerate
 - RK2 (Midpoint) method
-- Exponential Moving Average (EMA)
 - Remove unused code
 
 ------
