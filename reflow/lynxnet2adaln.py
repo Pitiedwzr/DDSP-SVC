@@ -1,5 +1,24 @@
-import math
+"""
+LYNXNet2-AdaLN (Modified LYNXNet2 Backbone)
 
+This is a modified version of the original LYNXNet2 backbone.
+It combines the base structure of LYNXNet2 with the Spatial Gating from LYNXNet2Plus,
+alongside custom modifications for AdaLN-Zero conditioning, also some other modifications.
+
+Acknowledgements:
+
+- Original LYNXNet2 by yxlllc: https://github.com/yxlllc/DDSP-SVC: Provided the base architecture
+- LYNXNet2Plus by KakaruHayate: https://github.com/KakaruHayate/DiffSinger/tree/lynxnet2attn: Inspired the integration of Spatial Gating (atan gating).
+
+Key Modifications:
+
+- Replaced standard diffusion embedding addition with AdaLN-Zero conditioning.
+- Integrated Spatial Gating Projections from LYNXNet2Plus.
+- Added cyclical dilation (1, 2, 4, 8) to the convolutional layers.
+- Switched to 1D-specific operations (LayerNorm1d, Linear1d) to avoid constant transposing.
+"""
+
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
