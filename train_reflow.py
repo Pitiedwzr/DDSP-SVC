@@ -55,8 +55,10 @@ if __name__ == '__main__':
                     args.model.n_aux_layers,
                     args.model.n_aux_chans,
                     args.model.n_layers,
-                    args.model.n_chans) 
-                    
+                    args.model.n_chans,
+                    getattr(args.model, 'spec_min', -12),
+                    getattr(args.model, 'spec_max', 2))
+
     else:
         raise ValueError(f" [x] Unknown Model: {args.model.type}")
     

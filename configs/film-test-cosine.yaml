@@ -19,6 +19,8 @@ data:
     - flac
 model:
   type: 'RectifiedFlow'
+  spec_min: -12
+  spec_max: 2
   win_length: 2048
   n_aux_layers: 6
   n_aux_chans: 512

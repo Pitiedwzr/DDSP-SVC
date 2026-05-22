@@ -70,10 +70,10 @@ def test(args, model, vocoder, loader_test, saver):
     # intialization
     num_batches = len(loader_test)
     rtf_all = []
-    spec_min = -2
-    spec_max = 10
-    spec_range = 12
-    
+    spec_min = getattr(args.model, 'spec_min', -12)
+    spec_max = getattr(args.model, 'spec_max', 2)
+    spec_range = spec_max - spec_min
+
     # run
     with torch.no_grad():
         for bidx, data in enumerate(loader_test):
@@ -139,11 +139,6 @@ def test(args, model, vocoder, loader_test, saver):
             # FIX: Removed the dead WAV2MEL STFT code here.
             # It was calculating pre_mel and gt_mel but never using them.
             # ==========================================
-
-            # FIX: Match the actual bounds defined in reflow.py
-            spec_min = -12.0
-            spec_max = 2.0
-            spec_range = spec_max - spec_min # 14.0
 
             # FIX: Correct Min-Max Normalization to [0, 1] range for accurate power math
             gt_mel_norm = torch.clip(data['mel'], spec_min, spec_max)
