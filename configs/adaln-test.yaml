@@ -24,8 +24,8 @@ model:
   win_length: 2048
   n_aux_layers: 6
   n_aux_chans: 512
-  n_layers: 10
-  n_chans: 2048
+  n_layers: 12
+  n_chans: 1024
   t_start: 0.0
   use_norm: true
   use_attention: false
@@ -39,12 +39,12 @@ infer:
   infer_step: 25
   method: 'rk2' # 'euler', 'rk2', 'rk4'
 env:
-  expdir: /kaggle/working/exp/film-10x2048
+  expdir: /kaggle/working/exp/adaln-test
   gpu_id: 0
 train:
   num_workers: 4 # If your cpu and gpu are both very strong, set to 0 may be faster!
   amp_dtype: fp16 # fp32, fp16 or bf16 (fp16 or bf16 may be faster if it is supported by your gpu)
-  batch_size: 96
+  batch_size: 128
   optimizer: 'aurora'     # 'aurora' or 'muon'
   cache_all_data: false # Save Internal-Memory or Graphics-Memory if it is false, but may be slow
   cache_device: 'cpu' # Set to 'cuda' to cache the data into the Graphics-Memory, fastest speed for strong gpu
@@ -53,7 +53,7 @@ train:
   interval_log: 1
   interval_val: 2000
   interval_force_save: 4000
-  lr: 0.0002
+  lr: 0.0001
   lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
   # Only for cosine
   t_max: 100000           # Total training steps before reaching minimum LR
@@ -66,4 +66,4 @@ train:
   # ------
   weight_decay: 0.1
   lambda_ddsp: 1
-  save_opt: false  
+  save_opt: false
