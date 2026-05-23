@@ -4,6 +4,7 @@ import torch
 from torch.optim import lr_scheduler
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 from optimizer.muon import Muon_AdamW
+from optimizer.aurora import Aurora_AdamW
 from logger import utils
 from reflow.data_loaders import get_data_loaders
 from reflow.vocoder import Vocoder, Unit2Wav
@@ -64,11 +65,24 @@ if __name__ == '__main__':
     
     # device
     model.to(accelerator.device)
-    
+
+    # Read optimizer type from config, default to 'muon' for backward compatibility
+    optim_type = getattr(args.train, 'optimizer', 'muon').lower()
+
+    if optim_type == 'aurora':
+        print(" [*] Initializing Aurora_AdamW Optimizer...")
+        optimizer = Aurora_AdamW(model,
+                                 aurora_args={'weight_decay': args.train.weight_decay},
+                                 adamw_args={'weight_decay': 0.01})
+    elif optim_type == 'muon':
+        print(" [*] Initializing Muon_AdamW Optimizer...")
+        optimizer = Muon_AdamW(model,
+                               muon_args={'weight_decay': args.train.weight_decay},
+                               adamw_args={'weight_decay': 0.01})
+    else:
+        raise ValueError(f" [x] Unknown optimizer: {optim_type}")
+
     # load parameters
-    optimizer = Muon_AdamW(model, 
-                    muon_args={'weight_decay': args.train.weight_decay}, 
-                    adamw_args={'weight_decay': 0.01})
     initial_global_step, model, optimizer = utils.load_model(args.env.expdir, model, optimizer, device=args.device)
     last_step = initial_global_step - 1
     

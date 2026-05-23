@@ -16,7 +16,8 @@ Language: **English** [简体中文](./cn_README.md)
 - Logit-Normal for t sample
 
 ### Training & Inferring
-- DDP using Huggingface Accelerate
+- DDP training using Huggingface Accelerate
+- [Aurora optimiser](https://github.com/tilde-research/aurora-release/tree/main)
 - RK2 (Midpoint) method
 - Remove unused code
 
