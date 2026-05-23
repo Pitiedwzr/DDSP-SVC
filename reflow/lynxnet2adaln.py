@@ -15,7 +15,6 @@ Key Modifications:
 - Replaced standard diffusion embedding addition with AdaLN-Zero conditioning.
 - Integrated Spatial Gating Projections from LYNXNet2Plus.
 - Added cyclical dilation (1, 2, 4, 8) to the convolutional layers.
-- Switched to 1D-specific operations (LayerNorm1d, Linear1d) to avoid constant transposing.
 """
 
 import math

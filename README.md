@@ -8,7 +8,6 @@ Language: **English** [简体中文](./cn_README.md)
 - Add cyclical dilation
 - AdaLN-Zero
 - Spatial Gating (from [LYNXNet2Plus](https://github.com/KakaruHayate/DiffSinger/tree/lynxnet2attn) by KakaruHayate)
-- Optimised 1D-specific operations
 
 ### Model
 - F0Predictor & Shared Encoder (Experiment)
