@@ -24,29 +24,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class LayerNorm1d(nn.Module):
-    def __init__(self, dim, eps=1e-5):
-        super().__init__()
-        self.eps = eps
-        self.weight = nn.Parameter(torch.ones(dim))
-        self.bias = nn.Parameter(torch.zeros(dim))
-
-    def forward(self, x):
-        mean = x.mean(dim=1, keepdim=True)
-        var = x.var(dim=1, unbiased=False, keepdim=True)
-        return (x - mean) / torch.sqrt(var + self.eps) * self.weight.view(1, -1, 1) + self.bias.view(1, -1, 1)
-
-class Linear1d(nn.Conv1d):
-    def __init__(self, in_channels, out_channels):
-        super().__init__(in_channels, out_channels, kernel_size=1)
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        weight_key = prefix + 'weight'
-        if weight_key in state_dict and state_dict[weight_key].ndim == 2:
-            state_dict[weight_key] = state_dict[weight_key].unsqueeze(-1)
-        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-
-
 class SwiGLU(nn.Module):
     # Swish-Applies the gated linear unit function.
     def __init__(self, dim=-1):
@@ -80,7 +57,7 @@ class LYNXNet2AdaLNBlock(nn.Module):
     def __init__(self, dim, expansion_factor=2, dim_global_cond=256, kernel_size=31, dilation=1, dropout=0.):
         super().__init__()
 
-        self.norm = LayerNorm1d(dim)
+        self.norm = nn.LayerNorm(dim)
 
         # FiLM -> AdaLN-Zero
         self.film_proj = nn.Linear(dim_global_cond * 2, dim * 3)
@@ -88,8 +65,8 @@ class LYNXNet2AdaLNBlock(nn.Module):
         nn.init.zeros_(self.film_proj.bias)
 
         # Spatial Gating Projections
-        self.proj_v = Linear1d(dim, dim)
-        self.proj_gate = Linear1d(dim, dim)
+        self.proj_v = nn.Linear(dim, dim)
+        self.proj_gate = nn.Linear(dim, dim)
 
         # Dilation
         padding = (kernel_size - 1) * dilation // 2
@@ -98,9 +75,9 @@ class LYNXNet2AdaLNBlock(nn.Module):
         # Single Clean MLP
         inner_dim = int(dim * expansion_factor)
         self.mlp = nn.Sequential(
-            Linear1d(dim, inner_dim * 2),
-            SwiGLU(dim=1),
-            Linear1d(inner_dim, dim),
+            nn.Linear(dim, inner_dim * 2),
+            SwiGLU(),
+            nn.Linear(inner_dim, dim),
             nn.Dropout(dropout) if float(dropout) > 0. else nn.Identity()
         )
 
@@ -109,14 +86,16 @@ class LYNXNet2AdaLNBlock(nn.Module):
         x = self.norm(x)
 
         # FiLM -> AdaLN-Zero
-        film_params = self.film_proj(global_cond).unsqueeze(-1) # [B, 3*dim, 1]
-        gamma, beta, alpha = film_params.chunk(3, dim=1) # [B, dim, 1]
+        film_params = self.film_proj(global_cond).unsqueeze(1) # [B, 1, 3*dim]
+        gamma, beta, alpha = film_params.chunk(3, dim=-1) # [B, 1, dim]
 
         x = x * (1 + gamma) + beta
 
         # Spatial Gating
         v = self.proj_v(x)
-        gate = self.conv(x)
+        gate = x.transpose(1, 2)
+        gate = self.conv(gate)
+        gate = gate.transpose(1, 2)
         gate = self.proj_gate(gate)
 
         x = v * torch.atan(gate)
@@ -133,8 +112,8 @@ class LYNXNet2AdaLN(nn.Module):
         LYNXNet2(Linear Gated Depthwise Separable Convolution Network Version 2)
         """
         super().__init__()
-        self.input_projection = Linear1d(in_dims, n_chans)
-        self.conditioner_projection = Linear1d(dim_cond, n_chans)
+        self.input_projection = nn.Linear(in_dims, n_chans)
+        self.conditioner_projection = nn.Linear(dim_cond, n_chans)
 
         self.diffusion_embedding = nn.Sequential(
             SinusoidalPosEmb(n_chans),
@@ -156,8 +135,8 @@ class LYNXNet2AdaLN(nn.Module):
                 for i in range(n_layers)
             ]
         )
-        self.norm = LayerNorm1d(n_chans)
-        self.output_projection = Linear1d(n_chans, in_dims)
+        self.norm = nn.LayerNorm(n_chans)
+        self.output_projection = nn.Linear(n_chans, in_dims)
         nn.init.zeros_(self.output_projection.weight)
 
     def forward(self, spec, diffusion_step, cond, global_cond):
@@ -177,8 +156,8 @@ class LYNXNet2AdaLN(nn.Module):
 
         assert x.dim() == 3, f"mel must be 3 dim tensor, but got {x.dim()}"
 
-        x = self.input_projection(x)
-        x = x + self.conditioner_projection(cond)
+        x = self.input_projection(x.transpose(1, 2))
+        x = x + self.conditioner_projection(cond.transpose(1, 2))
 
         time_emb = self.diffusion_embedding(diffusion_step)        # [B, dim_global_cond]
         block_cond = torch.cat([global_cond, time_emb], dim=-1)    # [B, dim_global_cond]
@@ -190,6 +169,6 @@ class LYNXNet2AdaLN(nn.Module):
         x = self.norm(x)
 
         # output projection
-        x = self.output_projection(x)  # [B, 128, T]
+        x = self.output_projection(x).transpose(1, 2)  # [B, 128, T]
 
         return x[:, None] if use_4_dim else x
