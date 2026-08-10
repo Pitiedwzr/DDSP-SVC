@@ -32,6 +32,14 @@ model:
   # Explicitly condition the DDSP control network on log-F0 and voiced/unvoiced state.
   # Enabling this changes the DDSP checkpoint architecture.
   use_f0_conditioning: false
+  # Self-Flow adds token-wise dual timesteps and EMA-teacher feature alignment.
+  # Enabling it adds a projection head and requires a new checkpoint.
+  use_self_flow: false
+  self_flow_mask_ratio: 0.5
+  self_flow_condition_mask_ratio: 0.1
+  self_flow_student_layer: 2
+  self_flow_teacher_layer: 4
+  self_flow_projector_dim: 1024
   n_spk: 1 # max number of different speakers
 device: cuda # training device
 vocoder:
@@ -60,4 +68,5 @@ train:
   weight_decay: 0.1
   lambda_ddsp: 1
   lambda_f0: 0.1
+  lambda_self_flow: 0.8
   save_opt: false  

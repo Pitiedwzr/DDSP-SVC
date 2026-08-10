@@ -198,6 +198,7 @@ def train(args, initial_global_step, model, ema_model, optimizer, scheduler, voc
     num_batches = len(loader_train)
     start_epoch = initial_global_step // num_batches
     model.train()
+    ema_model.eval()
 
     global_step = initial_global_step
 
@@ -218,15 +219,23 @@ def train(args, initial_global_step, model, ema_model, optimizer, scheduler, voc
                     data[k] = data[k].to(accelerator.device)
             
             # forward
-            ddsp_loss, reflow_loss, f0_loss = model(
+            lambda_self_flow = args.train.get('lambda_self_flow', 0.8)
+            teacher_velocity_fn = None
+            if args.model.get('use_self_flow', False) and lambda_self_flow > 0.0:
+                teacher_velocity_fn = ema_model.module.reflow_model.velocity_fn
+
+            ddsp_loss, reflow_loss, f0_loss, self_flow_loss = model(
                 data['units'].float(), data['f0'], data['volume'], data['spk_id'], 
                 aug_shift=data['aug_shift'], vocoder=vocoder, 
                 gt_spec=data['mel'].float(), infer=False, 
-                t_start=args.model.t_start, drop_spk=drop_spk
+                t_start=args.model.t_start, drop_spk=drop_spk,
+                teacher_velocity_fn=teacher_velocity_fn,
+                return_self_flow_loss=True
             )
             
             lambda_f0 = args.train.get('lambda_f0', 0.1)
-            loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss + lambda_f0 * f0_loss
+            loss = (args.train.lambda_ddsp * ddsp_loss + reflow_loss
+                    + lambda_f0 * f0_loss + lambda_self_flow * self_flow_loss)
 
             # Removed the "if isnan: continue" block completely
             # When using accelerate, DO NOT zero_grad and DO NOT continue
@@ -263,6 +272,7 @@ def train(args, initial_global_step, model, ema_model, optimizer, scheduler, voc
                 saver.log_value({
                     'train/loss': loss.item(), 'train/ddsp_loss': ddsp_loss.item(),
                     'train/reflow_loss': reflow_loss.item(), 'train/f0_loss': f0_loss.item(),
+                    'train/self_flow_loss': self_flow_loss.item(),
                     'train/lr': current_lr
                 })
             accelerator.wait_for_everyone()

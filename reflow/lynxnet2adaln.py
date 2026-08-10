@@ -47,7 +47,8 @@ class SinusoidalPosEmb(nn.Module):
         half_dim = self.dim // 2
         emb = math.log(10000) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
-        emb = x[:, None] * emb[None, :]
+        # Accept both utterance timesteps [B] and token timesteps [B, T].
+        emb = x[..., None] * emb
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
 
@@ -85,8 +86,10 @@ class LYNXNet2AdaLNBlock(nn.Module):
         x = self.norm(x)
 
         # FiLM -> AdaLN-Zero
-        film_params = self.film_proj(global_cond).unsqueeze(1) # [B, 1, 3*dim]
-        gamma, beta, alpha = film_params.chunk(3, dim=-1) # [B, 1, dim]
+        film_params = self.film_proj(global_cond)
+        if film_params.dim() == 2:
+            film_params = film_params.unsqueeze(1)
+        gamma, beta, alpha = film_params.chunk(3, dim=-1)
 
         x = x * (1 + gamma) + beta
 
@@ -106,7 +109,9 @@ class LYNXNet2AdaLNBlock(nn.Module):
 
 
 class LYNXNet2AdaLN(nn.Module):
-    def __init__(self, in_dims, dim_cond, dim_global_cond=256, n_layers=6, n_chans=512, expansion_factor=2, dropout=0.):
+    def __init__(self, in_dims, dim_cond, dim_global_cond=256, n_layers=6, n_chans=512,
+                 expansion_factor=2, dropout=0., use_self_flow=False,
+                 self_flow_projector_dim=1024):
         """
         LYNXNet2(Linear Gated Depthwise Separable Convolution Network Version 2)
         """
@@ -138,7 +143,17 @@ class LYNXNet2AdaLN(nn.Module):
         self.output_projection = nn.Linear(n_chans, in_dims)
         nn.init.zeros_(self.output_projection.weight)
 
-    def forward(self, spec, diffusion_step, cond, global_cond):
+        self.self_flow_projector = None
+        if use_self_flow:
+            if not 1 <= self_flow_projector_dim:
+                raise ValueError("self_flow_projector_dim must be positive")
+            self.self_flow_projector = nn.Sequential(
+                nn.Linear(n_chans, self_flow_projector_dim),
+                nn.SiLU(),
+                nn.Linear(self_flow_projector_dim, n_chans)
+            )
+
+    def forward(self, spec, diffusion_step, cond, global_cond, return_hidden_layer=None):
         """
         :param spec: [B, F, M, T]
         :param diffusion_step: [B, 1]
@@ -158,11 +173,20 @@ class LYNXNet2AdaLN(nn.Module):
         x = self.input_projection(x.transpose(1, 2))
         x = x + self.conditioner_projection(cond.transpose(1, 2))
 
-        time_emb = self.diffusion_embedding(diffusion_step)        # [B, dim_global_cond]
-        block_cond = torch.cat([global_cond, time_emb], dim=-1)    # [B, dim_global_cond]
+        time_emb = self.diffusion_embedding(diffusion_step)
+        if time_emb.dim() == 2:
+            time_emb = time_emb.unsqueeze(1).expand(-1, x.size(1), -1)
+        elif time_emb.size(1) == 1:
+            time_emb = time_emb.expand(-1, x.size(1), -1)
+        if global_cond.dim() == 2:
+            global_cond = global_cond.unsqueeze(1).expand(-1, x.size(1), -1)
+        block_cond = torch.cat([global_cond, time_emb], dim=-1)
 
-        for layer in self.residual_layers:
+        selected_hidden = None
+        for layer_index, layer in enumerate(self.residual_layers, start=1):
             x = layer(x, block_cond)
+            if layer_index == return_hidden_layer:
+                selected_hidden = x
 
         # post-norm
         x = self.norm(x)
@@ -170,4 +194,16 @@ class LYNXNet2AdaLN(nn.Module):
         # output projection
         x = self.output_projection(x).transpose(1, 2)  # [B, 128, T]
 
-        return x[:, None] if use_4_dim else x
+        output = x[:, None] if use_4_dim else x
+        if return_hidden_layer is not None:
+            if selected_hidden is None:
+                raise ValueError(
+                    f"return_hidden_layer must be between 1 and {len(self.residual_layers)}, "
+                    f"got {return_hidden_layer}")
+            return output, selected_hidden
+        return output
+
+    def project_self_flow(self, hidden):
+        if self.self_flow_projector is None:
+            raise RuntimeError("Self-Flow projector is not enabled")
+        return self.self_flow_projector(hidden)

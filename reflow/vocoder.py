@@ -50,7 +50,13 @@ def load_model_vocoder(
             args.model.get('spec_min', -12),
             args.model.get('spec_max', 2),
             args.model.get('use_aux_f0', True),
-            args.model.get('use_f0_conditioning', False))
+            args.model.get('use_f0_conditioning', False),
+            args.model.get('use_self_flow', False),
+            args.model.get('self_flow_student_layer', 2),
+            args.model.get('self_flow_teacher_layer', 4),
+            args.model.get('self_flow_projector_dim', 1024),
+            args.model.get('self_flow_mask_ratio', 0.5),
+            args.model.get('self_flow_condition_mask_ratio', 0.0))
 
     else:
         raise ValueError(f" [x] Unknown Model: {args.model.type}")
@@ -182,10 +188,22 @@ class Unit2Wav(nn.Module):
             spec_min=-12,
             spec_max=2,
             use_aux_f0=True,
-            use_f0_conditioning=False):
+            use_f0_conditioning=False,
+            use_self_flow=False,
+            self_flow_student_layer=2,
+            self_flow_teacher_layer=4,
+            self_flow_projector_dim=1024,
+            self_flow_mask_ratio=0.5,
+            self_flow_condition_mask_ratio=0.0):
         super().__init__()
         self.sampling_rate = sampling_rate
         self.block_size = block_size
+
+        if use_self_flow:
+            if not 1 <= self_flow_student_layer < self_flow_teacher_layer <= n_layers:
+                raise ValueError(
+                    "Self-Flow layers must satisfy 1 <= student_layer < "
+                    f"teacher_layer <= n_layers ({n_layers})")
 
         self.spk_embed = nn.Embedding(n_spk, 256)
         self.unit_hidden_dim = n_unit
@@ -220,16 +238,24 @@ class Unit2Wav(nn.Module):
                 dim_cond=out_dims,
                 dim_global_cond=256,           # (Spk Emb 维度)
                 n_layers=n_layers,
-                n_chans=n_chans
+                n_chans=n_chans,
+                use_self_flow=use_self_flow,
+                self_flow_projector_dim=self_flow_projector_dim
             ),
             out_dims=out_dims,
             spec_min=spec_min,
-            spec_max=spec_max
+            spec_max=spec_max,
+            use_self_flow=use_self_flow,
+            self_flow_student_layer=self_flow_student_layer,
+            self_flow_teacher_layer=self_flow_teacher_layer,
+            self_flow_mask_ratio=self_flow_mask_ratio,
+            self_flow_condition_mask_ratio=self_flow_condition_mask_ratio
         )
 
     def forward(self, units, f0, volume, spk_id=None, spk_mix_dict=None, aug_shift=None, vocoder=None,
                 gt_spec=None, infer=True, return_wav=False, infer_step=10, method='euler', t_start=0.0,
-                silence_front=0, use_tqdm=True, cfg_scale=1.0, drop_spk=False):
+                silence_front=0, use_tqdm=True, cfg_scale=1.0, drop_spk=False,
+                teacher_velocity_fn=None, return_self_flow_loss=False):
 
         '''
         input: 
@@ -293,14 +319,21 @@ class Unit2Wav(nn.Module):
             # 6. Use the CFG-dropped variables for Reflow
             if t_start < 1.0:
                 reflow_loss = self.reflow_model(
-                    condition=reflow_cond_mel, # Uses dropped mel if drop_spk=True
+                    condition=reflow_cond_mel,
                     gt_spec=gt_spec,
-                    global_cond=reflow_spk_emb, # Uses dropped spk if drop_spk=True
+                    global_cond=reflow_spk_emb,
                     t_start=t_start,
-                    infer=False
+                    infer=False,
+                    teacher_velocity_fn=teacher_velocity_fn,
+                    return_self_flow_loss=return_self_flow_loss
                 )
             else:
                 reflow_loss = torch.tensor(0.0, device=units.device)
+                if return_self_flow_loss:
+                    reflow_loss = (reflow_loss, reflow_loss.clone())
+            if return_self_flow_loss:
+                reflow_loss, self_flow_loss = reflow_loss
+                return ddsp_loss, reflow_loss, f0_loss, self_flow_loss
             return ddsp_loss, reflow_loss, f0_loss
         else:
             if gt_spec is not None and ddsp_mel is None: ddsp_mel = gt_spec

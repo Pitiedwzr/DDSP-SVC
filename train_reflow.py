@@ -60,7 +60,13 @@ if __name__ == '__main__':
                     args.model.get('spec_min', -12),
                     args.model.get('spec_max', 2),
                     args.model.get('use_aux_f0', True),
-                    args.model.get('use_f0_conditioning', False))
+                    args.model.get('use_f0_conditioning', False),
+                    args.model.get('use_self_flow', False),
+                    args.model.get('self_flow_student_layer', 2),
+                    args.model.get('self_flow_teacher_layer', 4),
+                    args.model.get('self_flow_projector_dim', 1024),
+                    args.model.get('self_flow_mask_ratio', 0.5),
+                    args.model.get('self_flow_condition_mask_ratio', 0.0))
 
     else:
         raise ValueError(f" [x] Unknown Model: {args.model.type}")
@@ -84,8 +90,12 @@ if __name__ == '__main__':
     else:
         raise ValueError(f" [x] Unknown optimizer: {optim_type}")
 
+    # Create the EMA teacher before restoring so its state resumes with the model.
+    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))
+
     # load parameters
-    initial_global_step, model, optimizer = utils.load_model(args.env.expdir, model, optimizer, device=args.device)
+    initial_global_step, model, optimizer = utils.load_model(
+        args.env.expdir, model, optimizer, ema_model=ema_model, device=args.device)
     last_step = initial_global_step - 1
     
     # Read scheduler type from config, default to 'step' if not found
@@ -136,7 +146,6 @@ if __name__ == '__main__':
     # datas
     loader_train, loader_valid = get_data_loaders(args, whole_audio=False)
 
-    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))
     # run
     model, optimizer, loader_train = accelerator.prepare(
         model, optimizer, loader_train

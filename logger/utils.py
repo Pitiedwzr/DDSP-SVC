@@ -98,6 +98,7 @@ def load_model(
         expdir, 
         model,
         optimizer,
+        ema_model=None,
         name='model',
         postfix='',
         device='cpu'):
@@ -117,6 +118,15 @@ def load_model(
         ckpt = torch.load(path_pt, map_location=torch.device(device), weights_only=False)
         global_step = ckpt['global_step']
         model.load_state_dict(ckpt['model'], strict=False)
+        if ema_model is not None:
+            if ckpt.get('ema_model') is not None:
+                ema_model.load_state_dict(ckpt['ema_model'], strict=False)
+                print(' [*] restored EMA model from checkpoint')
+            else:
+                # Keep the teacher synchronized when resuming an older checkpoint
+                # that predates EMA saving.
+                ema_model.module.load_state_dict(model.state_dict(), strict=False)
+                ema_model.n_averaged.zero_()
         if ckpt.get('optimizer') != None:
             optimizer.load_state_dict(ckpt['optimizer'])
     return global_step, model, optimizer
