@@ -35,7 +35,7 @@ def parse_args(args=None, namespace=None):
         type=int,
         default=2,
         required=False,
-        help="number of worker processes (default: cpu_count)")
+        help="number of worker processes (default: 2)")
     return parser.parse_args(args=args, namespace=namespace)
 
 
@@ -59,8 +59,11 @@ def load_extractors(args, sample_rate=None, hop_size=None, device='cuda'):
     # initialize mel extractor
     mel_extractor = Vocoder(args.vocoder.type, args.vocoder.ckpt, device=device)
     if mel_extractor.vocoder_sample_rate != sample_rate or mel_extractor.vocoder_hop_size != hop_size:
-        mel_extractor = None
-        print('Unmatch vocoder parameters, mel extraction is ignored!')
+        raise ValueError(
+            "Vocoder parameters do not match the dataset: "
+            f"expected sample_rate={sample_rate}, hop_size={hop_size}, "
+            f"got sample_rate={mel_extractor.vocoder_sample_rate}, "
+            f"hop_size={mel_extractor.vocoder_hop_size}")
     
     # initialize units encoder
     if args.data.encoder == 'cnhubertsoftfish':
@@ -208,6 +211,10 @@ def preprocess(path, args, sample_rate=None, hop_size=None, device='cuda', use_p
         is_pure=True,
         is_sort=True,
         is_ext=True)
+    if not filelist:
+        raise ValueError(f"No input audio files found under {path_srcdir}")
+    if workers <= 0:
+        raise ValueError("workers must be positive")
 
     # Ensure sample_rate and hop_size are set
     if sample_rate is None:
@@ -220,6 +227,7 @@ def preprocess(path, args, sample_rate=None, hop_size=None, device='cuda', use_p
 
     # Multiprocessing with ProcessPoolExecutor
     pitch_aug_dict = {}
+    failures = []
     with concurrent.futures.ProcessPoolExecutor(
         max_workers=workers,
         initializer=_worker_init,
@@ -240,6 +248,14 @@ def preprocess(path, args, sample_rate=None, hop_size=None, device='cuda', use_p
                     pitch_aug_dict[file] = keyshift
             except Exception as e:
                 print(f'\n[Error] Task for {file} generated an exception: {e}')
+                failures.append((file, e))
+
+    if failures:
+        failed_files = ', '.join(file for file, _ in failures[:5])
+        if len(failures) > 5:
+            failed_files += ', ...'
+        raise RuntimeError(
+            f"Preprocessing failed for {len(failures)} file(s): {failed_files}")
 
     # Save pitch augmentation dictionary if any
     if len(pitch_aug_dict) > 0:
