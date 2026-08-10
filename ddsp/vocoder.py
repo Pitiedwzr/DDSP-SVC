@@ -14,6 +14,7 @@ from torchaudio.transforms import Resample
 from .unit2control import Unit2Control
 from .core import frequency_filter, upsample, remove_above_fmax, MaskedAvgPool1d, MedianPool1d
 from .pitch import interpolate_unvoiced_f0
+from .alignment import align_units, pad_short_audio
 import time
 
 CREPE_RESAMPLE_KERNEL = {}
@@ -204,16 +205,13 @@ class Units_Encoder:
             audio_res = self.resample_kernel[key_str](audio)
         
         # encode
-        if audio_res.size(-1) < 400:
-            audio_res = torch.nn.functional.pad(audio, (0, 400 - audio_res.size(-1)))
+        audio_res = pad_short_audio(audio_res)
         units = self.model(audio_res)
         
         # alignment
         n_frames = audio.size(-1) // hop_size + 1
         ratio = (hop_size / sample_rate) / (self.encoder_hop_size / self.encoder_sample_rate)
-        index = torch.clamp(torch.round(ratio * torch.arange(n_frames).to(self.device)).long(), max = units.size(1) - 1)
-        units_aligned = torch.gather(units, 1, index.unsqueeze(0).unsqueeze(-1).repeat([1, 1, units.size(-1)]))
-        return units_aligned
+        return align_units(units, n_frames, ratio)
 
 
 class HubertModelWithFinalProj(HubertModel):
