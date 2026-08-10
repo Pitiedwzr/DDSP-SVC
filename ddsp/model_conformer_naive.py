@@ -89,7 +89,9 @@ class CFNEncoderLayer(nn.Module):
                 nhead=num_heads,
                 dim_feedforward=dim_model * 4,
                 dropout=atten_dropout,
-                activation='gelu'
+                activation='gelu',
+                batch_first=True,
+                norm_first=True
             )
             self.norm = nn.LayerNorm(dim_model)
         else:

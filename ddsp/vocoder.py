@@ -338,7 +338,8 @@ class CombSubSuperFast(torch.nn.Module):
             dim_model=256,
             use_norm=False,
             use_attention=False,
-            use_pitch_aug=False):
+            use_pitch_aug=False,
+            use_f0_conditioning=False):
         super().__init__()
 
         print(' [DDSP Model] Combtooth Subtractive Synthesiser')
@@ -363,7 +364,8 @@ class CombSubSuperFast(torch.nn.Module):
                             dim_model=dim_model,
                             use_norm=use_norm,
                             use_attention=use_attention, 
-                            use_pitch_aug=use_pitch_aug)
+                            use_pitch_aug=use_pitch_aug,
+                            use_f0_conditioning=use_f0_conditioning)
     
     def fast_source_gen(self, f0_frames):
         n = torch.arange(self.block_size, device=f0_frames.device)
@@ -394,11 +396,14 @@ class CombSubSuperFast(torch.nn.Module):
         noise_frames = noise.unfold(1, self.block_size, self.block_size)
         
         # parameter prediction
-        ctrls, hidden = self.unit2ctrl(units_frames, combtooth_frames, noise_frames, volume_frames, spk_id=spk_id, spk_mix_dict=spk_mix_dict, aug_shift=aug_shift)
+        ctrls, hidden = self.unit2ctrl(units_frames, combtooth_frames, noise_frames, volume_frames, f0=f0_frames, spk_id=spk_id, spk_mix_dict=spk_mix_dict, aug_shift=aug_shift)
         
-        src_filter = torch.exp(ctrls['harmonic_magnitude'] + 1.j * np.pi * ctrls['harmonic_phase'])
+        # Bound log magnitudes before exp: raw FP16 outputs otherwise overflow easily.
+        harmonic_log_mag = ctrls['harmonic_magnitude'].clamp(-12.0, 6.0)
+        noise_log_mag = ctrls['noise_magnitude'].clamp(-12.0, 6.0)
+        src_filter = torch.exp(harmonic_log_mag + 1.j * np.pi * ctrls['harmonic_phase'])
         src_filter = torch.cat((src_filter, src_filter[:,-1:,:]), 1)
-        noise_filter= torch.exp(ctrls['noise_magnitude'] + 1.j * np.pi * ctrls['noise_phase']) / 128
+        noise_filter = torch.exp(noise_log_mag + 1.j * np.pi * ctrls['noise_phase']) / 128
         noise_filter = torch.cat((noise_filter, noise_filter[:,-1:,:]), 1)
         
         # harmonic part filter

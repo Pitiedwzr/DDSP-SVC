@@ -1,6 +1,5 @@
 import os
 import time
-import random
 import numpy as np
 import torch
 import librosa
@@ -70,8 +69,8 @@ def test(args, model, vocoder, loader_test, saver):
     # intialization
     num_batches = len(loader_test)
     rtf_all = []
-    spec_min = getattr(args.model, 'spec_min', -12)
-    spec_max = getattr(args.model, 'spec_max', 2)
+    spec_min = args.model.get('spec_min', -12)
+    spec_max = args.model.get('spec_max', 2)
     spec_range = spec_max - spec_min
 
     # run
@@ -211,7 +210,7 @@ def train(args, initial_global_step, model, ema_model, optimizer, scheduler, voc
             optimizer.zero_grad()
             
             # CFG
-            drop_spk = random.random() < 0.15
+            drop_spk = torch.rand(data['units'].shape[0], device=accelerator.device) < 0.15
             
             # unpack data
             for k in data.keys():
@@ -226,7 +225,8 @@ def train(args, initial_global_step, model, ema_model, optimizer, scheduler, voc
                 t_start=args.model.t_start, drop_spk=drop_spk
             )
             
-            loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss + 0.1 * f0_loss
+            lambda_f0 = args.train.get('lambda_f0', 0.1)
+            loss = args.train.lambda_ddsp * ddsp_loss + reflow_loss + lambda_f0 * f0_loss
 
             # Removed the "if isnan: continue" block completely
             # When using accelerate, DO NOT zero_grad and DO NOT continue

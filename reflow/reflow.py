@@ -35,8 +35,7 @@ class RectifiedFlow(nn.Module):
         v_cond = self.velocity_fn(x, 1000 * t, cond, global_cond)
         
         if cfg_scale > 1.0 and null_global_cond is not None:
-            null_cond = torch.zeros_like(cond)
-            v_uncond = self.velocity_fn(x, 1000 * t, null_cond, null_global_cond)
+            v_uncond = self.velocity_fn(x, 1000 * t, cond, null_global_cond)
             v_pred = v_uncond + cfg_scale * (v_cond - v_uncond)
         else:
             v_pred = v_cond
@@ -53,8 +52,7 @@ class RectifiedFlow(nn.Module):
         def get_v(vx, vt):
             v_cond = self.velocity_fn(vx, 1000 * vt, cond, global_cond)
             if cfg_scale > 1.0 and null_global_cond is not None:
-                null_cond = torch.zeros_like(cond)
-                v_uncond = self.velocity_fn(vx, 1000 * vt, null_cond, null_global_cond)
+                v_uncond = self.velocity_fn(vx, 1000 * vt, cond, null_global_cond)
                 return v_uncond + cfg_scale * (v_cond - v_uncond)
             return v_cond
 
@@ -76,8 +74,7 @@ class RectifiedFlow(nn.Module):
         def get_v(vx, vt):
             v_cond = self.velocity_fn(vx, 1000 * vt, cond, global_cond)
             if cfg_scale > 1.0 and null_global_cond is not None:
-                null_cond = torch.zeros_like(cond)
-                v_uncond = self.velocity_fn(vx, 1000 * vt, null_cond, null_global_cond)
+                v_uncond = self.velocity_fn(vx, 1000 * vt, cond, null_global_cond)
                 return v_uncond + cfg_scale * (v_cond - v_uncond)
             return v_cond
 
@@ -122,12 +119,15 @@ class RectifiedFlow(nn.Module):
             shape = (cond.shape[0], 1, self.out_dims, cond.shape[2]) # [B, 1, M, T]
             
             # initial condition and step size of the ODE
-            if gt_spec is None:
+            if t_start <= 0.0:
                 x = torch.randn(shape, device=device)
                 t = torch.zeros((b,), device=device)
                 dt = 1.0 / infer_step 
             else:
-                norm_spec = self.norm_spec(gt_spec)
+                # Shallow refinement starts from a noised acoustic prior. In the
+                # normal VC path this is the DDSP mel supplied as `condition`.
+                initial_spec = condition if gt_spec is None else gt_spec
+                norm_spec = self.norm_spec(initial_spec)
                 norm_spec = norm_spec.transpose(1, 2)[:, None, :, :] # [B, 1, M, T]
                 x = t_start * norm_spec + (1 - t_start) * torch.randn(shape, device=device)
                 t = torch.full((b,), t_start, device=device)

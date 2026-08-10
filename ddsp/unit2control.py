@@ -31,11 +31,11 @@ class Unit2Control(nn.Module):
             dim_model=256,
             use_norm=False,
             use_attention=False,
-            use_pitch_aug=False):
+            use_pitch_aug=False,
+            use_f0_conditioning=False):
         super().__init__()
         self.output_splits = output_splits
-        # Remove f0 and phase embedding, as they are not used in the current implementation
-        # self.f0_embed = nn.Linear(1, dim_model)
+        self.f0_embed = nn.Linear(2, dim_model) if use_f0_conditioning else None
         # self.phase_embed = nn.Linear(1, dim_model)
         self.volume_embed = nn.Linear(1, dim_model)
         self.n_spk = n_spk
@@ -68,7 +68,7 @@ class Unit2Control(nn.Module):
         self.n_out = sum([v for k, v in output_splits.items()])
         self.dense_out = weight_norm(nn.Linear(dim_model, self.n_out))
 
-    def forward(self, units, source, noise, volume, spk_id = None, spk_mix_dict = None, aug_shift = None):
+    def forward(self, units, source, noise, volume, f0=None, spk_id = None, spk_mix_dict = None, aug_shift = None):
         
         '''
         input: 
@@ -79,6 +79,12 @@ class Unit2Control(nn.Module):
         exciter = torch.cat((source, noise), dim=-1).transpose(1,2)
         x = self.stack(units.transpose(1, 2)) + self.stack2(exciter)
         x = x.transpose(1, 2) + self.volume_embed(volume)
+        if self.f0_embed is not None:
+            if f0 is None:
+                raise ValueError("f0 is required when use_f0_conditioning is enabled")
+            voiced = (f0 > 0).to(f0.dtype)
+            log_f0 = torch.log2(f0.clamp_min(1.0)) / 10.0
+            x = x + self.f0_embed(torch.cat((log_f0, voiced), dim=-1))
         if self.n_spk is not None and self.n_spk > 1:
             if spk_mix_dict is not None:
                 for k, v in spk_mix_dict.items():

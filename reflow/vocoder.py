@@ -47,8 +47,10 @@ def load_model_vocoder(
             args.model.n_aux_chans,
             args.model.n_layers,
             args.model.n_chans,
-            getattr(args.model, 'spec_min', -12),
-            getattr(args.model, 'spec_max', 2))
+            args.model.get('spec_min', -12),
+            args.model.get('spec_max', 2),
+            args.model.get('use_aux_f0', True),
+            args.model.get('use_f0_conditioning', False))
 
     else:
         raise ValueError(f" [x] Unknown Model: {args.model.type}")
@@ -178,7 +180,9 @@ class Unit2Wav(nn.Module):
             n_layers=6,
             n_chans=512,
             spec_min=-12,
-            spec_max=2):
+            spec_max=2,
+            use_aux_f0=True,
+            use_f0_conditioning=False):
         super().__init__()
         self.sampling_rate = sampling_rate
         self.block_size = block_size
@@ -196,7 +200,7 @@ class Unit2Wav(nn.Module):
             nn.Conv1d(256, 128, 3, padding=1),
             nn.SiLU(),
             nn.Conv1d(128, 1, 1) # [B, 1, T]
-        )
+        ) if use_aux_f0 else None
 
         self.ddsp_model = CombSubSuperFast(
             sampling_rate,
@@ -208,7 +212,8 @@ class Unit2Wav(nn.Module):
             n_aux_chans if n_aux_chans is not None else 256,
             use_norm,
             use_attention,
-            use_pitch_aug)
+            use_pitch_aug,
+            use_f0_conditioning)
         self.reflow_model = RectifiedFlow(
             LYNXNet2AdaLN(
                 in_dims=out_dims,
@@ -247,7 +252,11 @@ class Unit2Wav(nn.Module):
 
         # 2. Setup CFG embeddings
         # We only zero out the embedding for the Reflow model during training.
-        reflow_spk_emb = torch.zeros_like(true_spk_emb) if drop_spk else true_spk_emb
+        if torch.is_tensor(drop_spk):
+            drop_mask = drop_spk.to(device=true_spk_emb.device, dtype=torch.bool).reshape(-1, 1)
+            reflow_spk_emb = torch.where(drop_mask, torch.zeros_like(true_spk_emb), true_spk_emb)
+        else:
+            reflow_spk_emb = torch.zeros_like(true_spk_emb) if drop_spk else true_spk_emb
         # For inference CFG, we need a null condition
         null_spk_emb = torch.zeros_like(true_spk_emb) if infer else None
 
@@ -264,29 +273,22 @@ class Unit2Wav(nn.Module):
         else:
             ddsp_mel = None
 
-        # 4. Fix the CFG Leak:
-        # If we are dropping the speaker (CFG), we should also hide the DDSP mel 
-        # from the Reflow model so it doesn't "cheat" by looking at the DDSP's timbre.
-        if drop_spk and ddsp_mel is not None:
-            reflow_cond_mel = torch.zeros_like(ddsp_mel)
-        else:
-            reflow_cond_mel = ddsp_mel
+        # CFG drops speaker identity only; content, pitch, and timing remain conditioned.
+        reflow_cond_mel = ddsp_mel
 
         if not infer:
             ddsp_loss = F.mse_loss(ddsp_mel, gt_spec)
 
             # 5. Use TRUE speaker embedding for F0 Predictor
-            spk_emb_expanded = true_spk_emb.unsqueeze(-1).expand(-1, -1, cleaned_units.size(2))
-            f0_pred_input = torch.cat([cleaned_units, spk_emb_expanded], dim=1) # [B, unit_dim + 256, T]
-
-            # Predict Log-F0
-            pred_log_f0 = self.f0_predictor(f0_pred_input).transpose(1, 2) # [B, T, 1]
-
-            # Ground Truth is already interpolated, so no zeros exist. Safe to take log!
-            gt_log_f0 = torch.log(f0)
-
-            # Calculate L1 Loss
-            f0_loss = F.l1_loss(pred_log_f0, gt_log_f0)
+            if self.f0_predictor is not None:
+                spk_emb_expanded = true_spk_emb.unsqueeze(-1).expand(-1, -1, cleaned_units.size(2))
+                f0_pred_input = torch.cat([cleaned_units, spk_emb_expanded], dim=1)
+                pred_log_f0 = self.f0_predictor(f0_pred_input).transpose(1, 2)
+                gt_log_f0 = torch.log(f0.clamp_min(1e-5))
+                voiced = f0 > 0
+                f0_loss = F.l1_loss(pred_log_f0[voiced], gt_log_f0[voiced]) if voiced.any() else pred_log_f0.sum() * 0.0
+            else:
+                f0_loss = torch.zeros((), device=units.device, dtype=ddsp_loss.dtype)
 
             # 6. Use the CFG-dropped variables for Reflow
             if t_start < 1.0:

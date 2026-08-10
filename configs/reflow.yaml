@@ -27,6 +27,11 @@ model:
   use_norm: true
   use_attention: false
   use_pitch_aug: true 
+  # Auxiliary training-only pitch prediction regularizer. It is never used for VC inference.
+  use_aux_f0: true
+  # Explicitly condition the DDSP control network on log-F0 and voiced/unvoiced state.
+  # Enabling this changes the DDSP checkpoint architecture.
+  use_f0_conditioning: false
   n_spk: 1 # max number of different speakers
 device: cuda # training device
 vocoder:
@@ -54,4 +59,5 @@ train:
   gamma: 0.9
   weight_decay: 0.1
   lambda_ddsp: 1
+  lambda_f0: 0.1
   save_opt: false  
