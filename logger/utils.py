@@ -4,6 +4,28 @@ import json
 import pickle
 import torch
 
+
+def make_config_serializable(value):
+    """Convert runtime config values into data accepted by YAML SafeDumper."""
+    if isinstance(value, dict):
+        return {key: make_config_serializable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [make_config_serializable(item) for item in value]
+    if isinstance(value, torch.device):
+        return str(value)
+    return value
+
+
+def unwrap_ema_state_dict(state_dict):
+    """Return the base-module weights from an AveragedModel state dict."""
+    base_state = {}
+    for key, value in state_dict.items():
+        if key == 'n_averaged':
+            continue
+        base_key = key[len('module.'):] if key.startswith('module.') else key
+        base_state[base_key] = value
+    return base_state
+
 def traverse_dir(
         root_dir,
         extensions,

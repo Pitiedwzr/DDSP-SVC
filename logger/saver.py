@@ -43,7 +43,10 @@ class Saver(object):
         # save config
         path_config = os.path.join(self.expdir, 'config.yaml')
         with open(path_config, "w") as out_config:
-            yaml.dump(dict(args), out_config)
+            yaml.safe_dump(
+                utils.make_config_serializable(dict(args)),
+                out_config,
+                sort_keys=False)
 
 
     def log_info(self, msg):

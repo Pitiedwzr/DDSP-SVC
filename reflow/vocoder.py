@@ -7,6 +7,7 @@ import numpy as np
 from nsf_hifigan.nvSTFT import STFT
 from nsf_hifigan.models import load_model,load_config
 from torchaudio.transforms import Resample
+from logger import utils
 from .reflow import RectifiedFlow
 from .lynxnet2adaln import LYNXNet2AdaLN
 from ddsp.vocoder import CombSubSuperFast
@@ -69,10 +70,7 @@ def load_model_vocoder(
     model.to(device)
     if 'ema_model' in ckpt:
         print(' [*] Loading EMA weights...')
-        ema_dict = {}
-        # Strip the "module." prefix added by PyTorch AveragedModel
-        for k, v in ckpt['ema_model'].items():
-            ema_dict[k.replace('module.', '')] = v
+        ema_dict = utils.unwrap_ema_state_dict(ckpt['ema_model'])
         model.load_state_dict(ema_dict)
     else:
         print(' [*] Loading standard weights (no EMA found)')
