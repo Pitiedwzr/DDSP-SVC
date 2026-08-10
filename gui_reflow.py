@@ -102,8 +102,11 @@ class SvcDDSP:
             hop_size,
             float(f0_min),
             float(f0_max))
-        f0 = pitch_extractor.extract(audio, uv_interp=True, device=self.device, silence_front=silence_front)
+        f0, voiced = pitch_extractor.extract(
+            audio, uv_interp=True, device=self.device,
+            silence_front=silence_front, return_voiced=True)
         f0 = torch.from_numpy(f0).float().to(self.device).unsqueeze(-1).unsqueeze(0)
+        voiced = torch.from_numpy(voiced).float().to(self.device).unsqueeze(-1).unsqueeze(0)
         f0 = f0 * 2 ** (float(pitch_adjust) / 12) #变调
 
         # formant change
@@ -142,7 +145,8 @@ class SvcDDSP:
                                     method=sampling_method,
                                     t_start=t_start,
                                     silence_front=silence_front,
-                                    use_tqdm=False)
+                                    use_tqdm=False,
+                                    voiced=voiced)
             output *= mask[:, -output.shape[-1]:]
             output = output.squeeze()
             if audio_alignment:

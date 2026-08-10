@@ -121,6 +121,7 @@ def _process_file(file, path, sample_rate, hop_size, use_pitch_aug, extensions):
     path_srcdir  = os.path.join(path, 'audio')
     path_unitsdir  = os.path.join(path, 'units')
     path_f0dir  = os.path.join(path, 'f0')
+    path_voiceddir = os.path.join(path, 'voiced')
     path_volumedir  = os.path.join(path, 'volume')
     path_augvoldir  = os.path.join(path, 'aug_vol')
     path_meldir  = os.path.join(path, 'mel')
@@ -131,6 +132,7 @@ def _process_file(file, path, sample_rate, hop_size, use_pitch_aug, extensions):
     path_srcfile = os.path.join(path_srcdir, file)
     path_unitsfile = os.path.join(path_unitsdir, binfile)
     path_f0file = os.path.join(path_f0dir, binfile)
+    path_voicedfile = os.path.join(path_voiceddir, binfile)
     path_volumefile = os.path.join(path_volumedir, binfile)
     path_augvolfile = os.path.join(path_augvoldir, binfile)
     path_melfile = os.path.join(path_meldir, binfile)
@@ -169,12 +171,8 @@ def _process_file(file, path, sample_rate, hop_size, use_pitch_aug, extensions):
     units = units_t.squeeze().to('cpu').numpy()
     
     # extract f0
-    f0 = f0_extractor.extract(audio, uv_interp = False)
-    
-    uv = f0 == 0
-    if len(f0[~uv]) > 0:
-        # interpolate the unvoiced f0
-        f0[uv] = np.interp(np.where(uv)[0], np.where(~uv)[0], f0[~uv])
+    f0, voiced = f0_extractor.extract(
+        audio, uv_interp=True, return_voiced=True)
 
     # Save all files, including fully unvoiced clips whose f0 remains zero.
     os.makedirs(os.path.dirname(path_unitsfile), exist_ok=True)
@@ -182,6 +180,9 @@ def _process_file(file, path, sample_rate, hop_size, use_pitch_aug, extensions):
 
     os.makedirs(os.path.dirname(path_f0file), exist_ok=True)
     np.save(path_f0file, f0.astype(np.float32))
+
+    os.makedirs(os.path.dirname(path_voicedfile), exist_ok=True)
+    np.save(path_voicedfile, voiced.astype(np.float32))
 
     os.makedirs(os.path.dirname(path_volumefile), exist_ok=True)
     np.save(path_volumefile, volume.astype(np.float32))

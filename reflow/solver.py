@@ -98,7 +98,8 @@ def test(args, model, vocoder, loader_test, saver):
                     return_wav=False,
                     infer_step=args.infer.infer_step, 
                     method=args.infer.method,
-                    t_start=args.model.t_start)
+                    t_start=args.model.t_start,
+                    voiced=data.get('voiced'))
             signal = vocoder.infer(mel, data['f0'])
             ed_time = time.time()
                         
@@ -118,7 +119,8 @@ def test(args, model, vocoder, loader_test, saver):
                 vocoder=vocoder,
                 gt_spec=data['mel'],
                 infer=False,
-                t_start=args.model.t_start)
+                t_start=args.model.t_start,
+                voiced=data.get('voiced'))
             test_ddsp_loss += ddsp_loss.item()
             test_reflow_loss += reflow_loss.item()
             test_f0_loss += f0_loss.item()
@@ -230,7 +232,8 @@ def train(args, initial_global_step, model, ema_model, optimizer, scheduler, voc
                 gt_spec=data['mel'].float(), infer=False, 
                 t_start=args.model.t_start, drop_spk=drop_spk,
                 teacher_velocity_fn=teacher_velocity_fn,
-                return_self_flow_loss=True
+                return_self_flow_loss=True,
+                voiced=data.get('voiced')
             )
             
             lambda_f0 = args.train.get('lambda_f0', 0.1)

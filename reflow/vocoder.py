@@ -256,7 +256,8 @@ class Unit2Wav(nn.Module):
     def forward(self, units, f0, volume, spk_id=None, spk_mix_dict=None, aug_shift=None, vocoder=None,
                 gt_spec=None, infer=True, return_wav=False, infer_step=10, method='euler', t_start=0.0,
                 silence_front=0, use_tqdm=True, cfg_scale=1.0, drop_spk=False,
-                teacher_velocity_fn=None, return_self_flow_loss=False):
+                teacher_velocity_fn=None, return_self_flow_loss=False,
+                voiced=None):
 
         '''
         input: 
@@ -292,7 +293,10 @@ class Unit2Wav(nn.Module):
         cleaned_units_for_ddsp = cleaned_units.transpose(1, 2)
 
         # 3. Pass the TRUE spk_id to DDSP so it generates the correct voice base
-        ddsp_wav, hidden = self.ddsp_model(cleaned_units_for_ddsp, f0, volume, spk_id=spk_id, spk_mix_dict=spk_mix_dict, aug_shift=aug_shift, infer=infer)
+        ddsp_wav, hidden = self.ddsp_model(
+            cleaned_units_for_ddsp, f0, volume, spk_id=spk_id,
+            spk_mix_dict=spk_mix_dict, aug_shift=aug_shift, infer=infer,
+            voiced=voiced)
 
         start_frame = int(silence_front * self.sampling_rate / self.block_size)
         if vocoder is not None:
@@ -312,8 +316,10 @@ class Unit2Wav(nn.Module):
                 f0_pred_input = torch.cat([cleaned_units, spk_emb_expanded], dim=1)
                 pred_log_f0 = self.f0_predictor(f0_pred_input).transpose(1, 2)
                 gt_log_f0 = torch.log(f0.clamp_min(1e-5))
-                voiced = f0 > 0
-                f0_loss = F.l1_loss(pred_log_f0[voiced], gt_log_f0[voiced]) if voiced.any() else pred_log_f0.sum() * 0.0
+                voiced_mask = f0 > 0 if voiced is None else voiced.to(dtype=torch.bool)
+                f0_loss = F.l1_loss(
+                    pred_log_f0[voiced_mask], gt_log_f0[voiced_mask]
+                ) if voiced_mask.any() else pred_log_f0.sum() * 0.0
             else:
                 f0_loss = torch.zeros((), device=units.device, dtype=ddsp_loss.dtype)
 

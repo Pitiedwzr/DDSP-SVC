@@ -68,7 +68,8 @@ class Unit2Control(nn.Module):
         self.n_out = sum([v for k, v in output_splits.items()])
         self.dense_out = weight_norm(nn.Linear(dim_model, self.n_out))
 
-    def forward(self, units, source, noise, volume, f0=None, spk_id = None, spk_mix_dict = None, aug_shift = None):
+    def forward(self, units, source, noise, volume, f0=None, voiced=None,
+                spk_id=None, spk_mix_dict=None, aug_shift=None):
         
         '''
         input: 
@@ -82,7 +83,9 @@ class Unit2Control(nn.Module):
         if self.f0_embed is not None:
             if f0 is None:
                 raise ValueError("f0 is required when use_f0_conditioning is enabled")
-            voiced = (f0 > 0).to(f0.dtype)
+            if voiced is None:
+                voiced = f0 > 0
+            voiced = voiced.to(device=f0.device, dtype=f0.dtype)
             log_f0 = torch.log2(f0.clamp_min(1.0)) / 10.0
             x = x + self.f0_embed(torch.cat((log_f0, voiced), dim=-1))
         if self.n_spk is not None and self.n_spk > 1:

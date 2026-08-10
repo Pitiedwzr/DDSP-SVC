@@ -13,6 +13,7 @@ from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 from torchaudio.transforms import Resample
 from .unit2control import Unit2Control
 from .core import frequency_filter, upsample, remove_above_fmax, MaskedAvgPool1d, MedianPool1d
+from .pitch import interpolate_unvoiced_f0
 import time
 
 CREPE_RESAMPLE_KERNEL = {}
@@ -42,7 +43,8 @@ class F0_Extractor:
                 F0_KERNEL['fcpe'] = spawn_bundled_infer_model(device=self.device_fcpe)
             self.fcpe = F0_KERNEL['fcpe']
                 
-    def extract(self, audio, uv_interp = False, device = None, silence_front = 0): # audio: 1d numpy array
+    def extract(self, audio, uv_interp=False, device=None, silence_front=0,
+                return_voiced=False): # audio: 1d numpy array
         # extractor start time
         n_frames = int(len(audio) // self.hop_size) + 1
                 
@@ -134,12 +136,14 @@ class F0_Extractor:
         else:
             raise ValueError(f" [x] Unknown f0 extractor: {self.f0_extractor}")
                     
-        # interpolate the unvoiced f0 
+        # Interpolate pitch for synthesis while preserving the original voicing
+        # decision separately. Fully unvoiced inputs remain at zero.
         if uv_interp:
-            uv = f0 == 0
-            if len(f0[~uv]) > 0:
-                f0[uv] = np.interp(np.where(uv)[0], np.where(~uv)[0], f0[~uv])
-            f0[f0 < self.f0_min] = self.f0_min
+            f0, voiced = interpolate_unvoiced_f0(f0, self.f0_min)
+        else:
+            voiced = (f0 > 0).astype(np.float32)
+        if return_voiced:
+            return f0, voiced
         return f0
 
 
@@ -383,7 +387,9 @@ class CombSubSuperFast(torch.nn.Module):
         combtooth = torch.sinc(rad / (s0 + 1e-5)).reshape(f0_frames.shape[0], -1)
         return combtooth
         
-    def forward(self, units_frames, f0_frames, volume_frames, spk_id=None, spk_mix_dict=None, aug_shift=None, initial_phase=None, infer=True, **kwargs):
+    def forward(self, units_frames, f0_frames, volume_frames, spk_id=None,
+                spk_mix_dict=None, aug_shift=None, initial_phase=None, infer=True,
+                voiced=None, **kwargs):
         '''
             units_frames: B x n_frames x n_unit
             f0_frames: B x n_frames x 1
@@ -399,7 +405,10 @@ class CombSubSuperFast(torch.nn.Module):
         noise_frames = noise.unfold(1, self.block_size, self.block_size)
         
         # parameter prediction
-        ctrls, hidden = self.unit2ctrl(units_frames, combtooth_frames, noise_frames, volume_frames, f0=f0_frames, spk_id=spk_id, spk_mix_dict=spk_mix_dict, aug_shift=aug_shift)
+        ctrls, hidden = self.unit2ctrl(
+            units_frames, combtooth_frames, noise_frames, volume_frames,
+            f0=f0_frames, voiced=voiced, spk_id=spk_id,
+            spk_mix_dict=spk_mix_dict, aug_shift=aug_shift)
         
         # Bound log magnitudes before exp: raw FP16 outputs otherwise overflow easily.
         harmonic_log_mag = ctrls['harmonic_magnitude'].clamp(-12.0, 6.0)

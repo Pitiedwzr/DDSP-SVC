@@ -145,7 +145,18 @@ class AudioDataset(Dataset):
             path_f0 = os.path.join(self.path_root, 'f0', name_ext) + '.npy'
             f0 = np.load(path_f0)
             f0_len = len(f0)
+
+            path_voiced = os.path.join(self.path_root, 'voiced', name_ext) + '.npy'
+            if os.path.exists(path_voiced):
+                voiced = np.load(path_voiced)
+            else:
+                # Backward compatibility for old datasets. Reprocessing is
+                # required to recover UV boundaries after F0 interpolation.
+                voiced = (f0 > 0).astype(np.float32)
+            voiced_len = len(voiced)
+
             f0 = torch.from_numpy(f0).float().unsqueeze(-1).to(device)
+            voiced = torch.from_numpy(voiced).float().unsqueeze(-1).to(device)
 
             path_volume = os.path.join(self.path_root, 'volume', name_ext) + '.npy'
             volume = np.load(path_volume)
@@ -173,7 +184,9 @@ class AudioDataset(Dataset):
             mel_len = get_npy_shape(path_mel)[0]
             aug_mel_len = get_npy_shape(path_augmel)[0]
             units_len = get_npy_shape(path_units)[0]
-            frame_len = min(mel_len, aug_mel_len, units_len, f0_len, volume_len, aug_vol_len)
+            frame_len = min(
+                mel_len, aug_mel_len, units_len, f0_len, voiced_len,
+                volume_len, aug_vol_len)
 
             if load_all_data:
                 mel = np.load(path_mel)
@@ -196,6 +209,7 @@ class AudioDataset(Dataset):
                         'aug_mel': aug_mel,
                         'units': units,
                         'f0': f0,
+                        'voiced': voiced,
                         'volume': volume,
                         'aug_vol': aug_vol,
                         'spk_id': spk_id
@@ -204,6 +218,7 @@ class AudioDataset(Dataset):
                 data_dict = {
                         'frame_len': frame_len,
                         'f0': f0,
+                        'voiced': voiced,
                         'volume': volume,
                         'aug_vol': aug_vol,
                         'spk_id': spk_id
@@ -235,6 +250,8 @@ class AudioDataset(Dataset):
 
                 if torch.isnan(data_dict['f0']).any() or torch.isinf(data_dict['f0']).any():
                     raise ValueError("NaN/Inf detected in f0 chunk")
+                if torch.isnan(data_dict['voiced']).any() or torch.isinf(data_dict['voiced']).any():
+                    raise ValueError("NaN/Inf detected in voiced chunk")
                 if torch.isnan(data_dict['volume']).any() or torch.isinf(data_dict['volume']).any():
                     raise ValueError("NaN/Inf detected in volume chunk")
                 if torch.isnan(data_dict['mel']).any() or torch.isinf(data_dict['mel']).any():
@@ -284,6 +301,9 @@ class AudioDataset(Dataset):
         if aug_flag:
             aug_shift = self.pitch_aug_dict[name_ext]
         f0_frames = 2 ** (aug_shift / 12) * f0[start_frame : start_frame + units_frame_len]
+
+        voiced = data_buffer.get('voiced')
+        voiced_frames = voiced[start_frame : start_frame + units_frame_len]
         
         # load volume
         vol_key = 'aug_vol' if aug_flag else 'volume'
@@ -296,7 +316,10 @@ class AudioDataset(Dataset):
         # load shift
         aug_shift = torch.tensor([[aug_shift]], dtype=torch.float32)
         
-        return dict(mel=mel, f0=f0_frames, volume=volume_frames, units=units, spk_id=spk_id, aug_shift=aug_shift, name=name, name_ext=name_ext)
+        return dict(
+            mel=mel, f0=f0_frames, voiced=voiced_frames,
+            volume=volume_frames, units=units, spk_id=spk_id,
+            aug_shift=aug_shift, name=name, name_ext=name_ext)
 
     def __len__(self):
         return len(self.paths)

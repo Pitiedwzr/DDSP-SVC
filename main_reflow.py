@@ -221,12 +221,18 @@ if __name__ == '__main__':
     
     cache_dir_path = os.path.join(os.path.dirname(__file__), "cache")
     cache_file_path = os.path.join(cache_dir_path, f"{cmd.pitch_extractor}_{hop_size}_{cmd.f0_min}_{cmd.f0_max}_{md5_hash}.npy")
+    voiced_cache_file_path = os.path.join(
+        cache_dir_path,
+        f"{cmd.pitch_extractor}_{hop_size}_{cmd.f0_min}_{cmd.f0_max}_{md5_hash}_voiced.npy")
     
-    is_cache_available = os.path.exists(cache_file_path)
+    is_cache_available = (
+        os.path.exists(cache_file_path)
+        and os.path.exists(voiced_cache_file_path))
     if is_cache_available:
         # f0 cache load
         print('Loading pitch curves for input audio from cache directory...')
         f0 = np.load(cache_file_path, allow_pickle=False)
+        voiced = np.load(voiced_cache_file_path, allow_pickle=False)
     else:
         # extract f0
         print('Pitch extractor type: ' + cmd.pitch_extractor)
@@ -237,13 +243,16 @@ if __name__ == '__main__':
                             float(cmd.f0_min), 
                             float(cmd.f0_max))
         print('Extracting the pitch curve of the input audio...')
-        f0 = pitch_extractor.extract(audio, uv_interp = True, device = device)
+        f0, voiced = pitch_extractor.extract(
+            audio, uv_interp=True, device=device, return_voiced=True)
         
         # f0 cache save
         os.makedirs(cache_dir_path, exist_ok=True)
         np.save(cache_file_path, f0, allow_pickle=False)
+        np.save(voiced_cache_file_path, voiced, allow_pickle=False)
     
     f0 = torch.from_numpy(f0).float().to(device).unsqueeze(-1).unsqueeze(0)
+    voiced = torch.from_numpy(voiced).float().to(device).unsqueeze(-1).unsqueeze(0)
     
     # key change
     f0 = f0 * 2 ** (float(cmd.key) / 12)
@@ -332,6 +341,7 @@ if __name__ == '__main__':
             seg_input = torch.from_numpy(segment[1]).float().unsqueeze(0).to(device)
             seg_units = units_encoder.encode(seg_input, sample_rate, hop_size)
             seg_f0 = f0[:, start_frame : start_frame + seg_units.size(1), :]
+            seg_voiced = voiced[:, start_frame : start_frame + seg_units.size(1), :]
             seg_volume = volume[:, start_frame : start_frame + seg_units.size(1), :]    
             seg_mel = model(
                     seg_units, 
@@ -344,7 +354,8 @@ if __name__ == '__main__':
                     infer_step=infer_step, 
                     method=method,
                     t_start=t_start,
-                    cfg_scale=cfg_scale)
+                    cfg_scale=cfg_scale,
+                    voiced=seg_voiced)
             seg_output = vocoder.infer(seg_mel, seg_f0)
             seg_output *= mask[:, start_frame * args.data.block_size : (start_frame + seg_units.size(1)) * args.data.block_size]
             seg_output = seg_output.squeeze().cpu().numpy()
@@ -357,4 +368,3 @@ if __name__ == '__main__':
                 result = cross_fade(result, seg_output, current_length + silent_length)
             current_length = current_length + silent_length + len(seg_output)
         sf.write(cmd.output, result, args.data.sampling_rate)
-    
