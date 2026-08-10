@@ -12,8 +12,11 @@ from .lynxnet2adaln import LYNXNet2AdaLN
 from ddsp.vocoder import CombSubSuperFast
 
 class DotDict(dict):
-    def __getattr__(*args):
-        val = dict.get(*args)
+    def __getattr__(self, key):
+        try:
+            val = self[key]
+        except KeyError as exc:
+            raise AttributeError(key) from exc
         return DotDict(val) if type(val) is dict else val
 
     __setattr__ = dict.__setitem__

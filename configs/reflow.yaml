@@ -62,6 +62,8 @@ train:
   interval_log: 1
   interval_val: 2000
   interval_force_save: 10000
+  optimizer: 'muon' # 'aurora' or 'muon'
+  lr_scheduler: 'step' # 'step' or 'cosine'
   lr: 0.0005
   decay_step: 4000
   gamma: 0.9

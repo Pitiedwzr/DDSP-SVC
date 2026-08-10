@@ -1,5 +1,6 @@
 import os
 import argparse
+import math
 import torch
 from torch.optim import lr_scheduler
 from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
@@ -75,7 +76,7 @@ if __name__ == '__main__':
     model.to(accelerator.device)
 
     # Read optimizer type from config, default to 'muon' for backward compatibility
-    optim_type = getattr(args.train, 'optimizer', 'muon').lower()
+    optim_type = args.train.get('optimizer', 'muon').lower()
 
     if optim_type == 'aurora':
         print(" [*] Initializing Aurora_AdamW Optimizer...")
@@ -99,45 +100,54 @@ if __name__ == '__main__':
     last_step = initial_global_step - 1
     
     # Read scheduler type from config, default to 'step' if not found
-    scheduler_type = getattr(args.train, 'lr_scheduler', 'step')
-    div_factor = getattr(args.train, 'div_factor', 25.0)
-    final_div_factor = getattr(args.train, 'final_div_factor', 10000.0)
+    scheduler_type = args.train.get('lr_scheduler', 'step')
+    div_factor = args.train.get('div_factor', 25.0)
+    final_div_factor = args.train.get('final_div_factor', 10000.0)
     
     for param_group in optimizer.param_groups:
         param_group['initial_lr'] = args.train.lr
         if scheduler_type == 'step':
             # Manual LR calc for StepLR resumption
-            param_group['lr'] = args.train.lr * args.train.gamma ** max((last_step) // getattr(args.train, 'decay_step', 5000), 0)
+            decay_step = args.train.get('decay_step', 5000)
+            gamma = args.train.get('gamma', 0.95)
+            param_group['lr'] = args.train.lr * gamma ** max(last_step // decay_step, 0)
         elif scheduler_type == 'cosine':
-            # CosineAnnealingLR calculates LR internally based on last_epoch
-            param_group['max_lr'] = args.train.lr
-            param_group['initial_lr'] = args.train.lr / div_factor
-            param_group['min_lr'] = (args.train.lr / div_factor) / final_div_factor
             param_group['lr'] = args.train.lr
 
     if scheduler_type == 'step':
         scheduler = lr_scheduler.StepLR(
             optimizer, 
-            step_size=getattr(args.train, 'decay_step', 5000), 
-            gamma=getattr(args.train, 'gamma', 0.95), 
+            step_size=args.train.get('decay_step', 5000),
+            gamma=args.train.get('gamma', 0.95),
             last_epoch=last_step
         )
     elif scheduler_type == 'cosine':
-        t_max = getattr(args.train, 't_max', 300000) # Total training steps
-        eta_min = getattr(args.train, 'eta_min', 1e-6) # Minimum learning rate
-        
-        # Switch to OneCycleLR for Warmup + Cosine Decay
-        scheduler = lr_scheduler.OneCycleLR(
-            optimizer, 
-            max_lr=args.train.lr,
-            total_steps=t_max,
-            pct_start=0.05,        # 5% of training is Warmup
-            div_factor=div_factor,
-            final_div_factor=final_div_factor,
-            anneal_strategy='cos', # Cosine curve
-            cycle_momentum=False,
-            last_epoch=last_step
-        )
+        t_max = args.train.get('t_max', 300000)
+        default_eta_min = args.train.lr / div_factor / final_div_factor
+        eta_min = args.train.get('eta_min', default_eta_min)
+        if t_max <= 0:
+            raise ValueError("train.t_max must be positive")
+        if not 0.0 <= eta_min <= args.train.lr:
+            raise ValueError("train.eta_min must be between 0 and train.lr")
+
+        warmup_steps = max(1, int(t_max * 0.05))
+        start_ratio = 1.0 / div_factor
+        min_ratio = eta_min / args.train.lr
+
+        def warmup_cosine(step):
+            if step < warmup_steps:
+                progress = step / warmup_steps
+                return start_ratio + (1.0 - start_ratio) * progress
+            if step < t_max:
+                progress = (step - warmup_steps) / max(t_max - warmup_steps, 1)
+                cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+                return min_ratio + (1.0 - min_ratio) * cosine
+            return min_ratio
+
+        scheduler = lr_scheduler.LambdaLR(
+            optimizer,
+            lr_lambda=warmup_cosine,
+            last_epoch=last_step)
     else:
         raise ValueError(f" [x] Unknown scheduler: {scheduler_type}")
                         
