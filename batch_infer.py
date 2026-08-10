@@ -9,11 +9,11 @@ import soundfile as sf
 import pyworld as pw
 import parselmouth
 import hashlib
-from ast import literal_eval
 from slicer import Slicer
 from ddsp.vocoder import F0_Extractor, Volume_Extractor, Units_Encoder
 from ddsp.core import upsample
 from reflow.vocoder import load_model_vocoder
+from reflow.inference_utils import parse_speaker_mix, validate_infer_step
 from tqdm import tqdm
 
 
@@ -297,7 +297,7 @@ def infer(input_path, output_path, cmd, device, model, vocoder, args, units_enco
     units = units_encoder.encode(input, sample_rate, hop_size)
 
     # speaker id or mix-speaker dictionary
-    spk_mix_dict = literal_eval(cmd.spk_mix_dict)
+    spk_mix_dict = parse_speaker_mix(cmd.spk_mix_dict)
     spk_id = torch.LongTensor(np.array([[int(cmd.spk_id)]])).to(device)
     if spk_mix_dict is not None:
         print('Mix-speaker mode')
@@ -315,6 +315,7 @@ def infer(input_path, output_path, cmd, device, model, vocoder, args, units_enco
         infer_step = args.infer.infer_step
     else:
         infer_step = int(cmd.infer_step)
+    validate_infer_step(infer_step)
     
     # t_start
     if cmd.t_start == 'auto':
@@ -327,13 +328,9 @@ def infer(input_path, output_path, cmd, device, model, vocoder, args, units_enco
         if args.model.t_start is not None and t_start < args.model.t_start:
             t_start = args.model.t_start
             
-    if infer_step > 0:
-        print('Sampling method: '+ method)
-        print('infer step: '+ str(infer_step))
-        print('t_start: '+ str(t_start))
-    elif infer_step < 0:
-        print('infer step cannot be negative!')
-        exit(0)
+    print('Sampling method: '+ method)
+    print('infer step: '+ str(infer_step))
+    print('t_start: '+ str(t_start))
 
     with torch.no_grad():
         mel = model(

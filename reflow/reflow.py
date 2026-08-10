@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from tqdm import tqdm
+from .inference_utils import validate_infer_step
 
 
 class RectifiedFlow(nn.Module):
@@ -191,6 +192,7 @@ class RectifiedFlow(nn.Module):
                 return_self_flow_loss=return_self_flow_loss,
                 t_start=t_start)
         else:
+            validate_infer_step(infer_step)
             shape = (cond.shape[0], 1, self.out_dims, cond.shape[2]) # [B, 1, M, T]
             
             # initial condition and step size of the ODE

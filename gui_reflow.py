@@ -1,6 +1,8 @@
 import FreeSimpleGUI as sg
 import sounddevice as sd
-import torch, librosa, pickle
+import json
+import os
+import torch, librosa
 import numpy as np
 from torch.nn import functional as F
 from torchaudio.transforms import Resample
@@ -9,6 +11,7 @@ from ddsp.core import upsample
 import time
 from gui_reflow_locale import I18nAuto
 from reflow.vocoder import load_model_vocoder
+from reflow.inference_utils import parse_speaker_mix
 
 flag_vc = False
 
@@ -136,7 +139,7 @@ class SvcDDSP:
                                     f0,
                                     volume,                                 
                                     spk_id = spk_id, 
-                                    spk_mix_dict = spk_mix_dict,
+                                    spk_mix_dict = dictionary,
                                     aug_shift = formant_shift_key,
                                     vocoder=self.vocoder,
                                     infer=True,
@@ -150,7 +153,7 @@ class SvcDDSP:
             output *= mask[:, -output.shape[-1]:]
             output = output.squeeze()
             if audio_alignment:
-                output[:audio_length]
+                output = output[:audio_length]
             return output, self.args.data.sampling_rate
 
 class Config:
@@ -175,16 +178,16 @@ class Config:
         self.sampling_method = 'euler'
 
     def save(self, path):
-        with open(path + '\\config.pkl', 'wb') as f:
-            pickle.dump(vars(self), f)
+        with open(os.path.join(path, 'config.json'), 'w', encoding='utf-8') as f:
+            json.dump(vars(self), f, ensure_ascii=False, indent=2)
 
     def load(self, path) -> bool:
         try:
-            with open(path + '\\config.pkl', 'rb') as f:
-                self.update(pickle.load(f))
+            with open(os.path.join(path, 'config.json'), 'r', encoding='utf-8') as f:
+                self.update(json.load(f))
             return True
-        except:
-            print('config.pkl does not exist')
+        except (OSError, ValueError, TypeError) as exc:
+            print(f'Could not load config.json: {exc}')
             return False
     
     def update(self, data_dict):
@@ -329,7 +332,7 @@ class GUI:
             elif event == 'set_spk_mix':
                 spk_mix = sg.popup_get_text(message='示例：1:0.3,2:0.5,3:0.2', title="设置混合音色，支持多人")
                 if spk_mix != None:
-                    self.config.spk_mix_dict = eval("{" + spk_mix.replace('，', ',').replace('：', ':') + "}")
+                    self.config.spk_mix_dict = parse_speaker_mix(spk_mix)
             elif event == 'f0_mode':
                 self.config.select_pitch_extractor = values['f0_mode']
             elif event == 'use_phase_vocoder':
