@@ -34,6 +34,16 @@ class SelfFlowTest(unittest.TestCase):
         self.assertEqual(scalar_output.shape, spec.shape)
         self.assertEqual(token_output.shape, spec.shape)
 
+    def test_velocity_output_projection_starts_at_zero(self):
+        model = self.make_backbone(use_self_flow=False)
+
+        torch.testing.assert_close(
+            model.output_projection.weight,
+            torch.zeros_like(model.output_projection.weight))
+        torch.testing.assert_close(
+            model.output_projection.bias,
+            torch.zeros_like(model.output_projection.bias))
+
     def test_self_flow_loss_backpropagates_to_student_only_parameters(self):
         student = self.make_backbone(use_self_flow=True)
         teacher = self.make_backbone(use_self_flow=True)

@@ -142,6 +142,7 @@ class LYNXNet2AdaLN(nn.Module):
         self.norm = nn.LayerNorm(n_chans)
         self.output_projection = nn.Linear(n_chans, in_dims)
         nn.init.zeros_(self.output_projection.weight)
+        nn.init.zeros_(self.output_projection.bias)
 
         self.self_flow_projector = None
         if use_self_flow:
