@@ -5,6 +5,8 @@ gin_config
 librosa
 matplotlib
 numpy==1.26.4
+onnx
+onnxruntime
 praat-parselmouth
 pyworld
 PyYAML
