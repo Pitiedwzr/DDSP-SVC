@@ -231,7 +231,9 @@ class RectifiedFlow(nn.Module):
             return self.denorm_spec(x)
 
     def norm_spec(self, x):
+        x = torch.clamp(x, self.spec_min, self.spec_max)
         return (x - self.spec_min) / (self.spec_max - self.spec_min) * 2 - 1
 
     def denorm_spec(self, x):
+        x = torch.clamp(x, -1.0, 1.0)
         return (x + 1) / 2 * (self.spec_max - self.spec_min) + self.spec_min

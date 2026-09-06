@@ -347,7 +347,8 @@ def infer(input_path, output_path, cmd, device, model, vocoder, args, units_enco
             t_start=t_start,
             voiced=voiced)
         output = vocoder.infer(mel, f0)
-        output *= mask
+        out_len = min(output.shape[-1], mask.shape[-1])
+        output = output[:, :out_len] * mask[:, :out_len]
         output = output.squeeze().cpu().numpy()
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         sf.write(output_path, output, args.data.sampling_rate)
