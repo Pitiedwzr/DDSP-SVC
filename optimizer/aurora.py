@@ -5,19 +5,22 @@ from torch.nn import Parameter
 from typing import List
 from .chained_optimizer import ChainedOptimizer, OptimizerSpec
 
+from .muon import get_bf16_support_map
+
 @torch.no_grad()
-def polar(G: torch.Tensor) -> torch.Tensor:
+def polar(G: torch.Tensor, use_bf16: bool = True) -> torch.Tensor:
     """Polar factor via 12-step simple-quintic Newton-Schulz.
 
     Args:
         G: input matrix of shape [..., m, n].
+        use_bf16: whether to use bfloat16 (falls back to float32).
 
     Returns:
-        polar(G) of the same shape, in bfloat16. All non-zero singular values
+        polar(G) of the same shape. All non-zero singular values
         of G are mapped to 1.
     """
     assert G.ndim >= 2
-    X = G.bfloat16() if G.dtype != torch.bfloat16 else G
+    X = G.to(dtype=torch.bfloat16 if use_bf16 else torch.float32)
     if G.size(-2) > G.size(-1):
         X = X.mT
 
@@ -36,7 +39,7 @@ def polar(G: torch.Tensor) -> torch.Tensor:
 
 
 @torch.no_grad()
-def aurora_update(W, G, momentum, eta=0.05, weight_decay=0.025, mu=0.95, nesterov=True, pp_iterations=2, pp_beta=0.5, eps=1e-7):
+def aurora_update(W, G, momentum, eta=0.05, weight_decay=0.025, mu=0.95, nesterov=True, pp_iterations=2, pp_beta=0.5, eps=1e-7, use_bf16=True):
     """Core Aurora algorithm applied in-place."""
     if W.ndim != 2:
         raise ValueError(f"aurora expects 2D weight tensors, got shape {tuple(W.shape)}")
@@ -48,7 +51,7 @@ def aurora_update(W, G, momentum, eta=0.05, weight_decay=0.025, mu=0.95, nestero
     # Aurora's leverage-uniform polar via diagonal preconditioning.
     m, n = update.size(-2), update.size(-1)
     if m == n:
-        update = polar(update)
+        update = polar(update, use_bf16=use_bf16)
     else:
         transposed = m < n
         if transposed:
@@ -59,14 +62,14 @@ def aurora_update(W, G, momentum, eta=0.05, weight_decay=0.025, mu=0.95, nestero
         row_norm = G32.norm(dim=-1, keepdim=True).clamp_(min=eps)
         D = 1.0 / row_norm
         for k in range(pp_iterations):
-            U = polar(D * G32)
+            U = polar(D * G32, use_bf16=use_bf16)
             if k < pp_iterations - 1:
                 row_sq = U.to(torch.float32).pow(2).sum(dim=-1, keepdim=True).clamp_(min=eps * eps)
                 D = D * (target_row_sq / row_sq).pow(pp_beta)
         update = U.mT if transposed else U
 
-    # Spectral aspect-ratio scaling (Muon convention).
-    update *= max(1, G.size(-2) / G.size(-1)) ** 0.5
+    # Spectral dimension scaling (Muon convention).
+    update *= max(G.size(-2), G.size(-1)) ** 0.5
 
     # Decoupled weight decay then apply.
     W.mul_(1 - eta * weight_decay)
@@ -81,6 +84,7 @@ class Aurora(torch.optim.Optimizer):
     def __init__(self, params, lr=5e-4, weight_decay=0.1, momentum=0.95, nesterov=True, pp_iterations=2, pp_beta=0.5):
         defaults = dict(lr=lr, weight_decay=weight_decay, momentum=momentum, nesterov=nesterov, pp_iterations=pp_iterations, pp_beta=pp_beta)
         super().__init__(params, defaults)
+        self.bf16_support_map = get_bf16_support_map()
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -106,6 +110,7 @@ class Aurora(torch.optim.Optimizer):
                     g_view = g
                     mom_view = state["momentum_buffer"]
 
+                use_bf16 = self.bf16_support_map.get(g.device, False)
                 aurora_update(
                     W=p_view,
                     G=g_view,
@@ -115,7 +120,8 @@ class Aurora(torch.optim.Optimizer):
                     mu=group["momentum"],
                     nesterov=group["nesterov"],
                     pp_iterations=group["pp_iterations"],
-                    pp_beta=group["pp_beta"]
+                    pp_beta=group["pp_beta"],
+                    use_bf16=use_bf16
                 )
         return loss
 

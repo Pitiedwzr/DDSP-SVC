@@ -169,10 +169,19 @@ def get_params_for_muon(model) -> List[Parameter]:
     """
     muon_params = []
     for module in model.modules():
+        # Exclude embeddings entirely
+        if isinstance(module, nn.Embedding):
+            continue
+
+        # Exclude depthwise convolutions (where groups == in_channels)
+        if isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
+            if module.groups == module.in_channels and module.in_channels > 1:
+                continue
+
         for param in module.parameters(recurse=False):
             if not param.requires_grad:
                 continue
-            if not isinstance(module, nn.Embedding) and param.ndim >= 2:
+            if param.ndim >= 2:
                 muon_params.append(param)
     return muon_params
 
