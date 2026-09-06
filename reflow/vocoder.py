@@ -60,7 +60,8 @@ def load_model_vocoder(
             args.model.get('self_flow_teacher_layer', 4),
             args.model.get('self_flow_projector_dim', 1024),
             args.model.get('self_flow_mask_ratio', 0.5),
-            args.model.get('self_flow_condition_mask_ratio', 0.0))
+            args.model.get('self_flow_condition_mask_ratio', 0.0),
+            args.model.get('detach_ddsp_cond', True))
 
     else:
         raise ValueError(f" [x] Unknown Model: {args.model.type}")
@@ -195,10 +196,12 @@ class Unit2Wav(nn.Module):
             self_flow_teacher_layer=4,
             self_flow_projector_dim=1024,
             self_flow_mask_ratio=0.5,
-            self_flow_condition_mask_ratio=0.0):
+            self_flow_condition_mask_ratio=0.0,
+            detach_ddsp_cond=True):
         super().__init__()
         self.sampling_rate = sampling_rate
         self.block_size = block_size
+        self.detach_ddsp_cond = detach_ddsp_cond
 
         if use_self_flow:
             if not 1 <= self_flow_student_layer < self_flow_teacher_layer <= n_layers:
@@ -305,7 +308,7 @@ class Unit2Wav(nn.Module):
             ddsp_mel = None
 
         # CFG drops speaker identity only; content, pitch, and timing remain conditioned.
-        reflow_cond_mel = ddsp_mel
+        reflow_cond_mel = ddsp_mel.detach() if (not infer and self.detach_ddsp_cond and ddsp_mel is not None) else ddsp_mel
 
         if not infer:
             ddsp_loss = F.mse_loss(ddsp_mel, gt_spec)

@@ -32,6 +32,8 @@ model:
   # Explicitly condition the DDSP control network on log-F0 and voiced/unvoiced state.
   # Enabling this changes the DDSP checkpoint architecture.
   use_f0_conditioning: false
+  # Detach DDSP mel prior before feeding as condition to Reflow to isolate acoustic prior learning.
+  detach_ddsp_cond: true
   # Self-Flow adds token-wise dual timesteps and EMA-teacher feature alignment.
   # Enabling it adds a projection head and requires a new checkpoint.
   use_self_flow: false
