@@ -175,12 +175,19 @@ class LYNXNet2AdaLN(nn.Module):
         x = x + self.conditioner_projection(cond.transpose(1, 2))
 
         time_emb = self.diffusion_embedding(diffusion_step)
-        if time_emb.dim() == 2:
+        if time_emb.dim() == 3 and time_emb.size(1) == 1:
+            time_emb = time_emb.squeeze(1)
+        if global_cond.dim() == 3 and global_cond.size(1) == 1:
+            global_cond = global_cond.squeeze(1)
+
+        if time_emb.dim() == 3:
+            if global_cond.dim() == 2:
+                global_cond = global_cond.unsqueeze(1).expand(-1, x.size(1), -1)
+            elif global_cond.size(1) == 1:
+                global_cond = global_cond.expand(-1, x.size(1), -1)
+        elif global_cond.dim() == 3:
             time_emb = time_emb.unsqueeze(1).expand(-1, x.size(1), -1)
-        elif time_emb.size(1) == 1:
-            time_emb = time_emb.expand(-1, x.size(1), -1)
-        if global_cond.dim() == 2:
-            global_cond = global_cond.unsqueeze(1).expand(-1, x.size(1), -1)
+
         block_cond = torch.cat([global_cond, time_emb], dim=-1)
 
         selected_hidden = None

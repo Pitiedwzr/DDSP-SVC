@@ -108,16 +108,22 @@ class RectifiedFlow(nn.Module):
             t = t_start + (1.0 - t_start) * t
         return torch.clip(t, 1e-7, 1 - 1e-7)
 
+    def _get_velocity(self, vx, vt, cond, global_cond=None, cfg_scale=1.0, null_global_cond=None):
+        if cfg_scale > 1.0 and null_global_cond is not None:
+            vx_cat = torch.cat([vx, vx], dim=0)
+            vt_cat = torch.cat([vt, vt], dim=0)
+            cond_cat = torch.cat([cond, cond], dim=0)
+            gcond_cat = torch.cat([global_cond, null_global_cond], dim=0)
+            v_all = self.velocity_fn(vx_cat, 1000 * vt_cat, cond_cat, gcond_cat)
+            b = vx.size(0)
+            v_cond = v_all[:b]
+            v_uncond = v_all[b:]
+            return v_uncond + cfg_scale * (v_cond - v_uncond)
+        return self.velocity_fn(vx, 1000 * vt, cond, global_cond)
+
     # Add CFG
     def sample_euler(self, x, t, dt, cond, global_cond=None, cfg_scale=1.0, null_global_cond=None): 
-        v_cond = self.velocity_fn(x, 1000 * t, cond, global_cond)
-        
-        if cfg_scale > 1.0 and null_global_cond is not None:
-            v_uncond = self.velocity_fn(x, 1000 * t, cond, null_global_cond)
-            v_pred = v_uncond + cfg_scale * (v_cond - v_uncond)
-        else:
-            v_pred = v_cond
-            
+        v_pred = self._get_velocity(x, t, cond, global_cond, cfg_scale, null_global_cond)
         x += v_pred * dt
         t = t + dt
         return x, t
@@ -127,39 +133,19 @@ class RectifiedFlow(nn.Module):
         2nd-Order Runge-Kutta (Midpoint) Sampler.
         Twice as fast as RK4, much higher quality than Euler.
         """
-        def get_v(vx, vt):
-            v_cond = self.velocity_fn(vx, 1000 * vt, cond, global_cond)
-            if cfg_scale > 1.0 and null_global_cond is not None:
-                v_uncond = self.velocity_fn(vx, 1000 * vt, cond, null_global_cond)
-                return v_uncond + cfg_scale * (v_cond - v_uncond)
-            return v_cond
-
-        # Step 1: Calculate velocity at current point
-        v_1 = get_v(x, t)
-        
-        # Step 2: Step HALFWAY forward and calculate velocity again
+        v_1 = self._get_velocity(x, t, cond, global_cond, cfg_scale, null_global_cond)
         x_half = x + 0.5 * v_1 * dt
         t_half = t + 0.5 * dt
-        v_2 = get_v(x_half, t_half)
-        
-        # Step 3: Take the full step using the halfway velocity
+        v_2 = self._get_velocity(x_half, t_half, cond, global_cond, cfg_scale, null_global_cond)
         x += v_2 * dt
         t = t + dt
-        
         return x, t
 
     def sample_rk4(self, x, t, dt, cond, global_cond=None, cfg_scale=1.0, null_global_cond=None):
-        def get_v(vx, vt):
-            v_cond = self.velocity_fn(vx, 1000 * vt, cond, global_cond)
-            if cfg_scale > 1.0 and null_global_cond is not None:
-                v_uncond = self.velocity_fn(vx, 1000 * vt, cond, null_global_cond)
-                return v_uncond + cfg_scale * (v_cond - v_uncond)
-            return v_cond
-
-        k_1 = get_v(x, t)
-        k_2 = get_v(x + 0.5 * k_1 * dt, t + 0.5 * dt)
-        k_3 = get_v(x + 0.5 * k_2 * dt, t + 0.5 * dt)
-        k_4 = get_v(x + k_3 * dt, t + dt)
+        k_1 = self._get_velocity(x, t, cond, global_cond, cfg_scale, null_global_cond)
+        k_2 = self._get_velocity(x + 0.5 * k_1 * dt, t + 0.5 * dt, cond, global_cond, cfg_scale, null_global_cond)
+        k_3 = self._get_velocity(x + 0.5 * k_2 * dt, t + 0.5 * dt, cond, global_cond, cfg_scale, null_global_cond)
+        k_4 = self._get_velocity(x + k_3 * dt, t + dt, cond, global_cond, cfg_scale, null_global_cond)
         x += (k_1 + 2 * k_2 + 2 * k_3 + k_4) * dt / 6
         t = t + dt
         return x, t
