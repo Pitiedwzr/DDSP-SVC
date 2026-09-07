@@ -71,10 +71,10 @@ train:
   interval_force_save: 4000
   max_val_samples: 169 # total samples to evaluate loss on
   max_audio_log: 4 # only synthesise full audio for first N samples
-  lr: 0.0002
+  lr: 0.0003
   lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
   # Only for cosine
-  t_max: 50000           # Total training steps before reaching minimum LR
+  t_max: 30000           # Total training steps before reaching minimum LR
   eta_min: 0.000001       # Minimum LR at the end of the cosine curve (1e-6)
   div_factor: 25
   final_div_factor: 10000
