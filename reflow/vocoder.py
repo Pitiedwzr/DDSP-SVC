@@ -63,7 +63,9 @@ def load_model_vocoder(
             args.model.get('self_flow_condition_mask_ratio', 0.0),
             args.model.get('detach_ddsp_cond', True),
             args.model.get('self_flow_span_length', 1),
-            args.model.get('self_flow_loss_on_masked_only', False))
+            args.model.get('self_flow_loss_on_masked_only', False),
+            args.model.get('gating_act', 'atan'),
+            args.model.get('block_type', 'fused'))
 
     else:
         raise ValueError(f" [x] Unknown Model: {args.model.type}")
@@ -201,7 +203,9 @@ class Unit2Wav(nn.Module):
             self_flow_condition_mask_ratio=0.0,
             detach_ddsp_cond=True,
             self_flow_span_length=1,
-            self_flow_loss_on_masked_only=False):
+            self_flow_loss_on_masked_only=False,
+            gating_act='atan',
+            block_type='fused'):
         super().__init__()
         self.sampling_rate = sampling_rate
         self.block_size = block_size
@@ -248,7 +252,9 @@ class Unit2Wav(nn.Module):
                 n_layers=n_layers,
                 n_chans=n_chans,
                 use_self_flow=use_self_flow,
-                self_flow_projector_dim=self_flow_projector_dim
+                self_flow_projector_dim=self_flow_projector_dim,
+                gating_act=gating_act,
+                block_type=block_type
             ),
             out_dims=out_dims,
             spec_min=spec_min,

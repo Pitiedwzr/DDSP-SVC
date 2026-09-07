@@ -54,9 +54,11 @@ class SinusoidalPosEmb(nn.Module):
 
 
 class LYNXNet2AdaLNBlock(nn.Module):
-    def __init__(self, dim, expansion_factor=2, dim_global_cond=256, kernel_size=31, dilation=1, dropout=0.):
+    def __init__(self, dim, expansion_factor=2, dim_global_cond=256, kernel_size=31, dilation=1, dropout=0.,
+                 gating_act='atan'):
         super().__init__()
 
+        self.gating_act = gating_act.lower()
         self.norm = nn.LayerNorm(dim)
 
         # FiLM -> AdaLN-Zero
@@ -81,6 +83,16 @@ class LYNXNet2AdaLNBlock(nn.Module):
             nn.Dropout(dropout) if float(dropout) > 0. else nn.Identity()
         )
 
+    def _apply_gating(self, gate):
+        if self.gating_act == 'atan':
+            return torch.atan(gate)
+        elif self.gating_act == 'silu':
+            return F.silu(gate)
+        elif self.gating_act == 'glu':
+            return torch.sigmoid(gate)
+        else:
+            raise ValueError(f"Unknown gating activation: {self.gating_act}")
+
     def forward(self, x, global_cond):
         res = x
         x = self.norm(x)
@@ -100,7 +112,7 @@ class LYNXNet2AdaLNBlock(nn.Module):
         gate = gate.transpose(1, 2)
         gate = self.proj_gate(gate)
 
-        x = v * torch.atan(gate)
+        x = v * self._apply_gating(gate)
 
         x = self.mlp(x)
 
@@ -108,14 +120,90 @@ class LYNXNet2AdaLNBlock(nn.Module):
         return res + x * alpha
 
 
+class DecoupledLYNXNet2AdaLNBlock(nn.Module):
+    def __init__(self, dim, expansion_factor=2, dim_global_cond=256, kernel_size=31, dilation=1, dropout=0.,
+                 gating_act='atan'):
+        super().__init__()
+
+        self.gating_act = gating_act.lower()
+        # Sub-block 1: Conv + Spatial Gating with AdaLN
+        self.norm1 = nn.LayerNorm(dim)
+        self.film_proj1 = nn.Linear(dim_global_cond * 2, dim * 3)
+        nn.init.zeros_(self.film_proj1.weight)
+        nn.init.zeros_(self.film_proj1.bias)
+
+        self.proj_v = nn.Linear(dim, dim)
+        self.proj_gate = nn.Linear(dim, dim)
+        padding = (kernel_size - 1) * dilation // 2
+        self.conv = nn.Conv1d(dim, dim, kernel_size=kernel_size, padding=padding, dilation=dilation, groups=dim)
+        self.dropout1 = nn.Dropout(dropout) if float(dropout) > 0. else nn.Identity()
+
+        # Sub-block 2: FFN / SwiGLU with AdaLN
+        self.norm2 = nn.LayerNorm(dim)
+        self.film_proj2 = nn.Linear(dim_global_cond * 2, dim * 3)
+        nn.init.zeros_(self.film_proj2.weight)
+        nn.init.zeros_(self.film_proj2.bias)
+
+        inner_dim = int(dim * expansion_factor)
+        self.mlp = nn.Sequential(
+            nn.Linear(dim, inner_dim * 2),
+            SwiGLU(),
+            nn.Linear(inner_dim, dim),
+            nn.Dropout(dropout) if float(dropout) > 0. else nn.Identity()
+        )
+
+    def _apply_gating(self, gate):
+        if self.gating_act == 'atan':
+            return torch.atan(gate)
+        elif self.gating_act == 'silu':
+            return F.silu(gate)
+        elif self.gating_act == 'glu':
+            return torch.sigmoid(gate)
+        else:
+            raise ValueError(f"Unknown gating activation: {self.gating_act}")
+
+    def forward(self, x, global_cond):
+        # Sub-block 1: Conv + Spatial Gating
+        res1 = x
+        h1 = self.norm1(x)
+        film1 = self.film_proj1(global_cond)
+        if film1.dim() == 2:
+            film1 = film1.unsqueeze(1)
+        gamma1, beta1, alpha1 = film1.chunk(3, dim=-1)
+        h1 = h1 * (1 + gamma1) + beta1
+
+        v = self.proj_v(h1)
+        gate = h1.transpose(1, 2)
+        gate = self.conv(gate)
+        gate = gate.transpose(1, 2)
+        gate = self.proj_gate(gate)
+        h1 = self.dropout1(v * self._apply_gating(gate))
+        x = res1 + h1 * alpha1
+
+        # Sub-block 2: Feed-forward / SwiGLU
+        res2 = x
+        h2 = self.norm2(x)
+        film2 = self.film_proj2(global_cond)
+        if film2.dim() == 2:
+            film2 = film2.unsqueeze(1)
+        gamma2, beta2, alpha2 = film2.chunk(3, dim=-1)
+        h2 = h2 * (1 + gamma2) + beta2
+
+        h2 = self.mlp(h2)
+        x = res2 + h2 * alpha2
+        return x
+
+
 class LYNXNet2AdaLN(nn.Module):
     def __init__(self, in_dims, dim_cond, dim_global_cond=256, n_layers=6, n_chans=512,
                  expansion_factor=2, dropout=0., use_self_flow=False,
-                 self_flow_projector_dim=1024):
+                 self_flow_projector_dim=1024, gating_act='atan', block_type='fused'):
         """
         LYNXNet2(Linear Gated Depthwise Separable Convolution Network Version 2)
         """
         super().__init__()
+        self.block_type = block_type.lower()
+        self.gating_act = gating_act.lower()
         self.input_projection = nn.Linear(in_dims, n_chans)
         self.conditioner_projection = nn.Linear(dim_cond, n_chans)
 
@@ -126,15 +214,17 @@ class LYNXNet2AdaLN(nn.Module):
             nn.Linear(n_chans * 4, dim_global_cond),
         )
 
+        block_cls = DecoupledLYNXNet2AdaLNBlock if self.block_type == 'decoupled' else LYNXNet2AdaLNBlock
         self.residual_layers = nn.ModuleList(
             [
-                LYNXNet2AdaLNBlock(
+                block_cls(
                     dim=n_chans,
                     expansion_factor=expansion_factor,
                     dim_global_cond=dim_global_cond,
                     kernel_size=31,
                     dilation=2 ** (i % 4), # 1, 2, 4, 8 loop
-                    dropout=dropout
+                    dropout=dropout,
+                    gating_act=self.gating_act
                 )
                 for i in range(n_layers)
             ]

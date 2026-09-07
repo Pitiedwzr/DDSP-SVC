@@ -44,6 +44,10 @@ model:
   self_flow_student_layer: 2
   self_flow_teacher_layer: 4
   self_flow_projector_dim: 1024
+  # Backbone architecture: 'fused' (standard LYNXNet2-AdaLN) or 'decoupled' (isolated Conv-AdaLN & SwiGLU-AdaLN sub-blocks)
+  block_type: 'fused'
+  # Spatial gating non-linearity: 'atan' (default), 'silu', or 'glu'
+  gating_act: 'atan'
   n_spk: 1 # max number of different speakers
 device: cuda # training device
 vocoder:
