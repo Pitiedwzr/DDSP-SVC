@@ -55,7 +55,7 @@ infer:
   infer_step: 15
   method: 'rk2'
 env:
-  expdir: exp/self-flow-exp
+  expdir: /kaggle/working/exp/self-flow-exp
   gpu_id: 0
 train:
   num_workers: 4 # If your cpu and gpu are both very strong, set to 0 may be faster!
