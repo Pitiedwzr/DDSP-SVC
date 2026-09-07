@@ -44,7 +44,7 @@ model:
   # Modern decoupled backbone with DiT-style dual AdaLN modulation
   block_type: 'decoupled'
   # Smooth SiLU gating
-  gating_act: 'silu'
+  gating_act: 'atan'
   n_spk: 169
 device: cuda
 vocoder:
