@@ -1,0 +1,85 @@
+data:
+  f0_extractor: 'rmvpe'
+  f0_min: 65
+  f0_max: 800
+  sampling_rate: 44100
+  volume_smooth_size: 1024
+  block_size: 512
+  duration: 2
+  encoder: 'contentvec768l12tta2x'
+  cnhubertsoft_gate: 10
+  encoder_sample_rate: 16000
+  encoder_hop_size: 160
+  encoder_out_channels: 768
+  encoder_ckpt: pretrain/contentvec/pytorch_model.bin
+  train_path: /kaggle/temp/DDSP-SVC/data/train # Create a folder named "audio" under this path and put the audio clip in it
+  valid_path: /kaggle/temp/DDSP-SVC/data/val # Create a folder named "audio" under this path and put the audio clip in it
+  extensions:
+    - wav
+    - flac
+model:
+  type: 'RectifiedFlow'
+  win_length: 2048
+  n_aux_layers: 6
+  n_aux_chans: 512
+  n_layers: 12
+  n_chans: 1024
+  t_start: 0.0
+  use_norm: true
+  use_attention: false
+  use_pitch_aug: true
+  use_aux_f0: true
+  use_f0_conditioning: false
+  # DDSP prior detached for clean acoustic prior isolation
+  detach_ddsp_cond: true
+  # Self-Flow enabled with optimal phonetic span masking
+  use_self_flow: true
+  self_flow_mask_ratio: 0.5
+  self_flow_condition_mask_ratio: 0.1
+  self_flow_span_length: 6
+  self_flow_loss_on_masked_only: false
+  self_flow_student_layer: 4
+  self_flow_teacher_layer: 8
+  self_flow_projector_dim: 1024
+  # Modern decoupled backbone with DiT-style dual AdaLN modulation
+  block_type: 'decoupled'
+  # Smooth SiLU gating
+  gating_act: 'silu'
+  n_spk: 76
+device: cuda
+vocoder:
+  ckpt: pretrain/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02/model.ckpt
+  type: nsf-hifigan
+infer:
+  # Fast & accurate 2nd-order ODE solver
+  infer_step: 15
+  method: 'rk2'
+env:
+  expdir: exp/all-improvements-recommended
+  gpu_id: 0
+train:
+  num_workers: 4 # If your cpu and gpu are both very strong, set to 0 may be faster!
+  amp_dtype: fp16 # fp32, fp16 or bf16 (fp16 or bf16 may be faster if it is supported by your gpu)
+  batch_size: 96
+  optimizer: 'muon'     # 'aurora' or 'muon'
+  cache_all_data: false # Save Internal-Memory or Graphics-Memory if it is false, but may be slow
+  cache_device: 'cpu' # Set to 'cuda' to cache the data into the Graphics-Memory, fastest speed for strong gpu
+  cache_fp16: true
+  epochs: 100000
+  interval_log: 1
+  interval_val: 2000
+  interval_force_save: 4000
+  lr: 0.0002
+  lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
+  # Only for cosine
+  t_max: 100000           # Total training steps before reaching minimum LR
+  eta_min: 0.000001       # Minimum LR at the end of the cosine curve (1e-6)
+  div_factor: 25
+  final_div_factor: 10000
+  # Only for steplr
+  decay_step: 5000        # Ignored when using 'cosine', safe to leave for backup
+  gamma: 0.9              # Ignored when using 'cosine', safe to leave for backup
+  # ------
+  weight_decay: 0.1
+  lambda_ddsp: 1
+  save_opt: false
