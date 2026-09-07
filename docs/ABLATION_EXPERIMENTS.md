@@ -42,7 +42,7 @@ To ensure statistical rigor and isolate individual variables, all ablation runs 
 
 ### Experiment 1.2: FP16 Stability & Mel Compression Epsilon
 
-- **Hypothesis**: In `nsf_hifigan/nvSTFT.py`, dynamic range compression applies $\log(\max(x, 10^{-5}))$. The derivative is $1 / 10^{-5} = 100,000$, exceeding the maximum finite value of FP16 ($65,504$), triggering gradient overflows and NaN loss events. Setting a numerically stable epsilon or computing STFT/loss in Float32 eliminates NaN loss spikes and improves gradient fidelity.
+- **Hypothesis**: In `../nsf_hifigan/nvSTFT.py`, dynamic range compression applies $\log(\max(x, 10^{-5}))$. The derivative is $1 / 10^{-5} = 100,000$, exceeding the maximum finite value of FP16 ($65,504$), triggering gradient overflows and NaN loss events. Setting a numerically stable epsilon or computing STFT/loss in Float32 eliminates NaN loss spikes and improves gradient fidelity.
 - **Configuration**:
   - `E1.2-Base`: `clip_val = 1e-5` in `nvSTFT.py` (Current).
   - `E1.2-SafeClamp`: `clip_val = 1e-4` in `nvSTFT.py` ($1 / 10^{-4} = 10,000 < 65,504$).
@@ -51,7 +51,7 @@ To ensure statistical rigor and isolate individual variables, all ablation runs 
 
 ### Experiment 1.3: Optimizer Filter on Depthwise Convolutions
 
-- **Hypothesis**: `optimizer/muon.py` includes all 2D+ parameters, improperly capturing `nn.Conv1d(1024, 1024, kernel_size=31, groups=1024)` depthwise filters. Orthogonalizing a $1024 \times 31$ matrix (rank $\le 31$) via Newton-Schulz damages independent spatial filtering. Routing depthwise convolutions to AdamW (matching `aurora.py`) improves convergence.
+- **Hypothesis**: `../optimizer/muon.py` includes all 2D+ parameters, improperly capturing `nn.Conv1d(1024, 1024, kernel_size=31, groups=1024)` depthwise filters. Orthogonalizing a $1024 \times 31$ matrix (rank $\le 31$) via Newton-Schulz damages independent spatial filtering. Routing depthwise convolutions to AdamW (matching `aurora.py`) improves convergence.
 - **Configuration**:
   - `E1.3-Muon-Bug`: Current Muon implementation (depthwise conv included in Muon).
   - `E1.3-Muon-Fixed`: Muon with depthwise conv filtered out and routed to AdamW.
