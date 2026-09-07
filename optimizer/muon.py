@@ -156,45 +156,76 @@ class Muon(torch.optim.Optimizer):
                 if group["weight_decay"] > 0:
                     torch._foreach_mul_(p, 1 - group["lr"] * group["weight_decay"])
                 torch._foreach_add_(p, g.view(original_shape).unbind(0), alpha=-group["lr"] * max(g[0].size()) ** 0.5)
-                
-                
+
+
 def get_params_for_muon(model) -> List[Parameter]:
     """
-    Filter parameters of a module into two groups: those that can be optimized by Muon,
-    and those that should be optimized by a standard optimizer.
-    Args:
-        module: The module to filter parameters for.
-    Returns:
-        A list of parameters that should be optimized with muon.
+    Filter parameters:
+    - Muon: hidden 2D/3D/4D matrix weights (Linear, Conv with groups=1)
+    - AdamW: 1D params (biases, norms), embeddings, depthwise convs,
+             zero-initialized AdaLN film projections, and output heads.
     """
     muon_params = []
-    for module in model.modules():
-        # Exclude embeddings entirely
+    for name, module in model.named_modules():
+        # 1. Exclude embeddings entirely
         if isinstance(module, nn.Embedding):
             continue
 
-        # Exclude depthwise convolutions (where groups == in_channels)
+        # 2. Exclude depthwise convolutions (SGU conv)
         if isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
             if module.groups == module.in_channels and module.in_channels > 1:
                 continue
 
-        for param in module.parameters(recurse=False):
+        # 3. Exclude output projections and AdaLN-Zero FiLM projections
+        #    These rely on zero-initialization and must use AdamW!
+        if any(keyword in name.lower() for keyword in ['output_projection', 'film_proj', 'f0_predictor']):
+            continue
+
+        for param_name, param in module.named_parameters(recurse=False):
             if not param.requires_grad:
                 continue
-            if param.ndim >= 2:
-                muon_params.append(param)
+
+            # Exclude 1D parameters (biases, norms)
+            if param.ndim < 2:
+                continue
+
+            # Exclude tokens with degenerate dimensions like (1, D, 1)
+            if any(dim == 1 for dim in param.shape):
+                continue
+
+            muon_params.append(param)
+
     return muon_params
 
 
 class Muon_AdamW(ChainedOptimizer):
-    def __init__(self, model, lr=0.0005, weight_decay=0.0, muon_args={}, adamw_args={}, verbose=False):
+    def __init__(self, model, lr=0.0002, weight_decay=0.01, muon_lr_factor=5.0, verbose=False):
         muon_params_id_set = set(id(p) for p in get_params_for_muon(model))
-        spec_muon = OptimizerSpec(Muon, muon_args, lambda param: id(param) in muon_params_id_set)
-        spec_adamw = OptimizerSpec(torch.optim.AdamW, adamw_args, None)
-        specs = [spec_muon, spec_adamw]
-        callback = None
-        if verbose:
-            callback = lambda p, spec_idx: print(
-            f"Adding param {p.shape} to optimizer{spec_idx} {str(specs[spec_idx].class_type)}"
+
+        # Split AdamW into decay (embeddings/film weights) and no-decay (biases/norms)
+        muon_spec = OptimizerSpec(
+            Muon,
+            init_args={'lr': lr * muon_lr_factor, 'weight_decay': weight_decay},
+            param_filter=lambda p: id(p) in muon_params_id_set
         )
-        super().__init__(model.parameters(), specs, lr=lr, weight_decay=weight_decay, optimizer_selection_callback=callback)
+        adamw_spec = OptimizerSpec(
+            torch.optim.AdamW,
+            init_args={'lr': lr, 'weight_decay': 0.0, 'betas': (0.9, 0.95), 'eps': 1e-8},
+            param_filter=None
+        )
+
+        specs = [muon_spec, adamw_spec]
+        super().__init__(model.parameters(), specs, lr=lr, weight_decay=weight_decay)
+        self.muon_lr_factor = muon_lr_factor
+
+    def _copy_lr_to_optimizers(self) -> None:
+        """Preserve the ratio between Muon and AdamW during LR scheduling."""
+        for param_group in self.param_groups:
+            base_lr = param_group["lr"]
+            indices = param_group["optimizer_and_param_group_indices"]
+            for optimizer_idx, param_group_idx in indices:
+                opt = self.optimizers[optimizer_idx]
+                if isinstance(opt, Muon):
+                    opt.param_groups[param_group_idx]["lr"] = base_lr * self.muon_lr_factor
+                else:
+                    opt.param_groups[param_group_idx]["lr"] = base_lr

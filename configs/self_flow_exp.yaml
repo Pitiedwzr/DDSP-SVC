@@ -71,7 +71,8 @@ train:
   interval_force_save: 4000
   max_val_samples: 169 # total samples to evaluate loss on
   max_audio_log: 4 # only synthesise full audio for first N samples
-  lr: 0.0003
+  lr: 0.0002 # Base LR for AdamW (1D, norms, AdaLN, embeddings)
+  muon_lr_factor: 2.5     # Muon LR will be 0.0002 * 2.5 = 0.0005
   lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
   # Only for cosine
   t_max: 30000           # Total training steps before reaching minimum LR

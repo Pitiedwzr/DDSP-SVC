@@ -87,12 +87,16 @@ if __name__ == '__main__':
         print(" [*] Initializing Aurora_AdamW Optimizer...")
         optimizer = Aurora_AdamW(model,
                                  aurora_args={'weight_decay': args.train.weight_decay},
-                                 adamw_args={'weight_decay': 0.01})
+                                 adamw_args={'weight_decay': 0.0})
     elif optim_type == 'muon':
         print(" [*] Initializing Muon_AdamW Optimizer...")
-        optimizer = Muon_AdamW(model,
-                               muon_args={'weight_decay': args.train.weight_decay},
-                               adamw_args={'weight_decay': 0.01})
+        optimizer = Muon_AdamW(
+            model,
+            lr=args.train.lr,
+            weight_decay=args.train.weight_decay,
+            muon_lr_factor=args.train.get('muon_lr_factor', 2.5),
+            verbose=False
+        )
     else:
         raise ValueError(f" [x] Unknown optimizer: {optim_type}")
 
