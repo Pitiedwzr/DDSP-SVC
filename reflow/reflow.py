@@ -90,10 +90,15 @@ class RectifiedFlow(nn.Module):
                     _, teacher_hidden = teacher_velocity_fn(
                         x_clean, 1000 * clean_t, cond, global_cond,
                         return_hidden_layer=self.self_flow_teacher_layer)
-                student_hidden = self.velocity_fn.project_self_flow(student_hidden)
-                cos_dist = 1.0 - F.cosine_similarity(
-                    student_hidden.float(), teacher_hidden.float(), dim=-1
-                )
+
+                student_f = student_hidden.float()
+                teacher_f = teacher_hidden.float()
+
+                student_norm = student_f / student_f.norm(dim=-1, keepdim=True).clamp_min(1e-4)
+                teacher_norm = teacher_f / teacher_f.norm(dim=-1, keepdim=True).clamp_min(1e-4)
+                cos_sim = (student_norm * teacher_norm).sum(dim=-1)
+                cos_dist = 1.0 - cos_sim
+
                 if self.self_flow_loss_on_masked_only and token_mask.any():
                     self_flow_loss = cos_dist[token_mask].mean()
                 else:
