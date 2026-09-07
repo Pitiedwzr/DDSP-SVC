@@ -1,5 +1,39 @@
 # Implementation log
 
+## 2026-09-07 — Architecture, stability, and optimization review
+
+Following an exhaustive audit of mathematical foundations, numerical stability, optimization correctness, and backbone design, six atomic improvements were implemented:
+
+- `98b5923` — **Fix Muon depthwise conv selection and Aurora dimension scaling**:
+  - Excluded depthwise 1D convolutions (`groups == in_channels > 1`) and embedding matrices from Muon optimization in `optimizer/muon.py`, safely routing them to AdamW to prevent orthogonalization degeneration.
+  - Corrected dimension scaling factor in `optimizer/aurora.py` from aspect ratio `sqrt(M / N)` to scale `sqrt(max(M, N))` according to the Aurora algorithm specification, preventing exploding updates on asymmetric tensors. Added safe bfloat16/float32 fallbacks.
+  - Added unit tests in `tests/test_optimizers.py`.
+- `37ced20` — **Fix FP16 STFT gradient overflow, clamp norm_spec, and align infer mask**:
+  - Clamped nvSTFT minimum magnitude floor to `1e-4` in `float16` (`1e-5` in `float32`) in `nsf_hifigan/nvSTFT.py`, eliminating massive backward gradient spikes ($100{,}000 > 65{,}504$) that trigger FP16 underflow/overflow NaN cascades.
+  - Clamped `norm_spec` and `denorm_spec` in `reflow/reflow.py` to prevent spectrogram values from escaping the normalized dynamic range $[-1, 1]$.
+  - Aligned padding mask slice in `batch_infer.py` to match exact output time length.
+  - Added unit tests in `tests/test_numerical_stability.py`.
+- `6d04bd3` — **Add configurable DDSP acoustic prior condition detachment**:
+  - Added `detach_ddsp_cond` option to `configs/reflow.yaml`, `reflow/vocoder.py`, and `train_reflow.py`.
+  - When enabled (`true` by default), detaches DDSP output before concatenating as Reflow conditioner, isolating acoustic prior learning and preventing DDSP collapse to trivial mel surrogates.
+  - Added unit tests in `tests/test_detach_ddsp.py`.
+- `b7ad92a` — **Optimize AdaLN projection compute and batch CFG forward passes**:
+  - In `reflow/lynxnet2adaln.py`, avoided redundant 3D temporal expansion of `block_cond` before the AdaLN linear projection, reducing linear projection FLOPs by up to $1000\times$ across all layers during inference while preserving exact broadcast semantics.
+  - In `reflow/reflow.py`, batched conditional and unconditional forward passes into a single $2B$ batch in `_get_velocity()` for Euler, RK2, and RK4 ODE samplers with classifier-free guidance (CFG).
+  - Added unit tests in `tests/test_performance_optimizations.py`.
+- `31523ae` — **Add configurable Self-Flow phonetic span masking and selective representation loss**:
+  - In `reflow/reflow.py`, implemented contiguous phoneme span masking (`self_flow_span_length`) to avoid trivial single-frame acoustic interpolation.
+  - Added `self_flow_loss_on_masked_only` option to focus self-supervised representation loss solely on masked tokens.
+  - Exposed options via `configs/reflow.yaml`, `reflow/vocoder.py`, and `train_reflow.py`.
+  - Added unit tests in `tests/test_self_flow.py`.
+- `5dd0af4` — **Add configurable decoupled backbone architecture and gating activations**:
+  - Added `block_type: 'fused'` (default) vs `'decoupled'` in `reflow/lynxnet2adaln.py`, isolating Depthwise-Conv spatial mixing and SwiGLU feedforward channel mixing with independent AdaLN conditioning and residual connections.
+  - Added configurable `gating_act`: `'atan'` (default bounded gating), `'silu'`, and `'glu'` (sigmoid gating).
+  - Exposed options via `configs/reflow.yaml`, `reflow/vocoder.py`, and `train_reflow.py` with full backward compatibility for existing checkpoints.
+  - Added unit tests in `tests/test_backbone_improvements.py`.
+
+A comprehensive ablation experiment plan for evaluating these features was designed and saved in `ABLATION_EXPERIMENTS.md`.
+
 ## 2026-08-11 — Whole-project correctness audit
 
 The audit findings were fixed as separate commits:
