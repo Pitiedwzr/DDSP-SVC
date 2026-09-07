@@ -22,7 +22,7 @@ model:
   win_length: 2048
   n_aux_layers: 6
   n_aux_chans: 512
-  n_layers: 12
+  n_layers: 6
   n_chans: 1024
   t_start: 0.0
   use_norm: true
@@ -38,8 +38,8 @@ model:
   self_flow_condition_mask_ratio: 0.1
   self_flow_span_length: 6
   self_flow_loss_on_masked_only: false
-  self_flow_student_layer: 4
-  self_flow_teacher_layer: 8
+  self_flow_student_layer: 2
+  self_flow_teacher_layer: 4
   self_flow_projector_dim: 1024
   # Modern decoupled backbone with DiT-style dual AdaLN modulation
   block_type: 'decoupled'
@@ -60,7 +60,7 @@ env:
 train:
   num_workers: 4 # If your cpu and gpu are both very strong, set to 0 may be faster!
   amp_dtype: fp16 # fp32, fp16 or bf16 (fp16 or bf16 may be faster if it is supported by your gpu)
-  batch_size: 48
+  batch_size: 72
   optimizer: 'muon'     # 'aurora' or 'muon'
   cache_all_data: false # Save Internal-Memory or Graphics-Memory if it is false, but may be slow
   cache_device: 'cpu' # Set to 'cuda' to cache the data into the Graphics-Memory, fastest speed for strong gpu
@@ -72,7 +72,7 @@ train:
   lr: 0.0002
   lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
   # Only for cosine
-  t_max: 30000           # Total training steps before reaching minimum LR
+  t_max: 50000           # Total training steps before reaching minimum LR
   eta_min: 0.000001       # Minimum LR at the end of the cosine curve (1e-6)
   div_factor: 25
   final_div_factor: 10000
