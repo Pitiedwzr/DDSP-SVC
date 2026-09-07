@@ -17,7 +17,9 @@ class RectifiedFlow(nn.Module):
                 self_flow_student_layer=2,
                 self_flow_teacher_layer=4,
                 self_flow_mask_ratio=0.5,
-                self_flow_condition_mask_ratio=0.0):
+                self_flow_condition_mask_ratio=0.0,
+                self_flow_span_length=1,
+                self_flow_loss_on_masked_only=False):
         super().__init__()
         self.velocity_fn = velocity_fn
         self.out_dims = out_dims
@@ -28,6 +30,8 @@ class RectifiedFlow(nn.Module):
         self.self_flow_teacher_layer = self_flow_teacher_layer
         self.self_flow_mask_ratio = self_flow_mask_ratio
         self.self_flow_condition_mask_ratio = self_flow_condition_mask_ratio
+        self.self_flow_span_length = max(1, int(self_flow_span_length))
+        self.self_flow_loss_on_masked_only = self_flow_loss_on_masked_only
         self.condition_mask_token = None
         if use_self_flow:
             self.condition_mask_token = nn.Parameter(
@@ -47,6 +51,15 @@ class RectifiedFlow(nn.Module):
         mask_token = self.condition_mask_token.to(dtype=cond.dtype)
         return torch.where(keep, cond, mask_token)
     
+    def _sample_self_flow_mask(self, batch_size, seq_len, device):
+        if self.self_flow_span_length <= 1:
+            return torch.rand(batch_size, seq_len, device=device) < self.self_flow_mask_ratio
+        p_start = min(1.0, self.self_flow_mask_ratio / self.self_flow_span_length)
+        starts = (torch.rand(batch_size, 1, seq_len, device=device) < p_start).float()
+        kernel = torch.ones(1, 1, self.self_flow_span_length, device=device)
+        spans = F.conv1d(starts, kernel, padding=self.self_flow_span_length - 1)[:, 0, :seq_len]
+        return spans > 0
+
     def reflow_loss(self, x_1, t, cond, global_cond=None, loss_type='l2',
                     teacher_velocity_fn=None, return_self_flow_loss=False,
                     t_start=0.0):
@@ -59,9 +72,8 @@ class RectifiedFlow(nn.Module):
                 x_1.size(0), x_1.device, t_start=t_start)
             if t.dim() != 1:
                 raise ValueError("Base Self-Flow timesteps must have shape [B]")
-            token_mask = torch.rand(
-                x_1.size(0), x_1.size(-1), device=x_1.device
-            ) < self.self_flow_mask_ratio
+            token_mask = self._sample_self_flow_mask(
+                x_1.size(0), x_1.size(-1), device=x_1.device)
             token_t = torch.where(token_mask, second_t[:, None], t[:, None])
             x_t = x_0 + token_t[:, None, None, :] * target_velocity
 
@@ -79,11 +91,13 @@ class RectifiedFlow(nn.Module):
                         x_clean, 1000 * clean_t, cond, global_cond,
                         return_hidden_layer=self.self_flow_teacher_layer)
                 student_hidden = self.velocity_fn.project_self_flow(student_hidden)
-                self_flow_loss = (
-                    1.0 - F.cosine_similarity(
-                        student_hidden.float(), teacher_hidden.float(), dim=-1
-                    )
-                ).mean()
+                cos_dist = 1.0 - F.cosine_similarity(
+                    student_hidden.float(), teacher_hidden.float(), dim=-1
+                )
+                if self.self_flow_loss_on_masked_only and token_mask.any():
+                    self_flow_loss = cos_dist[token_mask].mean()
+                else:
+                    self_flow_loss = cos_dist.mean()
             else:
                 v_pred = self.velocity_fn(
                     x_t, 1000 * token_t, student_cond, global_cond)

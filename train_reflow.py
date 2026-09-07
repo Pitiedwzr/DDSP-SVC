@@ -68,7 +68,9 @@ if __name__ == '__main__':
                     args.model.get('self_flow_projector_dim', 1024),
                     args.model.get('self_flow_mask_ratio', 0.5),
                     args.model.get('self_flow_condition_mask_ratio', 0.0),
-                    args.model.get('detach_ddsp_cond', True))
+                    args.model.get('detach_ddsp_cond', True),
+                    args.model.get('self_flow_span_length', 1),
+                    args.model.get('self_flow_loss_on_masked_only', False))
 
     else:
         raise ValueError(f" [x] Unknown Model: {args.model.type}")

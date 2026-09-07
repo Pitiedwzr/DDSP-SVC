@@ -39,6 +39,8 @@ model:
   use_self_flow: false
   self_flow_mask_ratio: 0.5
   self_flow_condition_mask_ratio: 0.1
+  self_flow_span_length: 1
+  self_flow_loss_on_masked_only: false
   self_flow_student_layer: 2
   self_flow_teacher_layer: 4
   self_flow_projector_dim: 1024

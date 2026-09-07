@@ -61,7 +61,9 @@ def load_model_vocoder(
             args.model.get('self_flow_projector_dim', 1024),
             args.model.get('self_flow_mask_ratio', 0.5),
             args.model.get('self_flow_condition_mask_ratio', 0.0),
-            args.model.get('detach_ddsp_cond', True))
+            args.model.get('detach_ddsp_cond', True),
+            args.model.get('self_flow_span_length', 1),
+            args.model.get('self_flow_loss_on_masked_only', False))
 
     else:
         raise ValueError(f" [x] Unknown Model: {args.model.type}")
@@ -197,7 +199,9 @@ class Unit2Wav(nn.Module):
             self_flow_projector_dim=1024,
             self_flow_mask_ratio=0.5,
             self_flow_condition_mask_ratio=0.0,
-            detach_ddsp_cond=True):
+            detach_ddsp_cond=True,
+            self_flow_span_length=1,
+            self_flow_loss_on_masked_only=False):
         super().__init__()
         self.sampling_rate = sampling_rate
         self.block_size = block_size
@@ -253,7 +257,9 @@ class Unit2Wav(nn.Module):
             self_flow_student_layer=self_flow_student_layer,
             self_flow_teacher_layer=self_flow_teacher_layer,
             self_flow_mask_ratio=self_flow_mask_ratio,
-            self_flow_condition_mask_ratio=self_flow_condition_mask_ratio
+            self_flow_condition_mask_ratio=self_flow_condition_mask_ratio,
+            self_flow_span_length=self_flow_span_length,
+            self_flow_loss_on_masked_only=self_flow_loss_on_masked_only
         )
 
     def forward(self, units, f0, volume, spk_id=None, spk_mix_dict=None, aug_shift=None, vocoder=None,
