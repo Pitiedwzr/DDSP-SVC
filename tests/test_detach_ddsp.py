@@ -20,11 +20,15 @@ class DetachDdspConditionTest(unittest.TestCase):
             use_aux_f0=False,
             use_self_flow=False,
         )
+        torch.manual_seed(42)
         model_detached = Unit2Wav(**kwargs, detach_ddsp_cond=True)
+        torch.manual_seed(42)
         model_attached = Unit2Wav(**kwargs, detach_ddsp_cond=False)
         with torch.no_grad():
             model_detached.reflow_model.velocity_fn.output_projection.weight.fill_(0.1)
             model_attached.reflow_model.velocity_fn.output_projection.weight.fill_(0.1)
+            model_detached.reflow_model.velocity_fn.conditioner_projection.weight.fill_(0.1)
+            model_attached.reflow_model.velocity_fn.conditioner_projection.weight.fill_(0.1)
 
         # Mock vocoder that returns differentiable mel from audio
         class MockVocoder:
