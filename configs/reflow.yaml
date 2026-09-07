@@ -70,6 +70,8 @@ train:
   interval_log: 1
   interval_val: 2000
   interval_force_save: 10000
+  max_val_samples: 20 # total samples to evaluate loss on
+  max_audio_log: 2 # only synthesise full audio for first N samples
   optimizer: 'muon' # 'aurora' or 'muon'
   lr_scheduler: 'step' # 'step' or 'cosine'
   lr: 0.0005

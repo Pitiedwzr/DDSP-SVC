@@ -66,55 +66,33 @@ def test(args, model, vocoder, loader_test, saver):
     mel_val_psnr_all = 0
     mel_val_sisnr_all = 0
 
-    # intialization
-    num_batches = len(loader_test)
     rtf_all = []
     spec_min = args.model.get('spec_min', -12)
     spec_max = args.model.get('spec_max', 2)
     spec_range = spec_max - spec_min
 
+    # Configurable limits
+    max_val_samples = args.train.get('max_val_samples', 20)  # total samples to evaluate loss on
+    max_audio_log = args.train.get('max_audio_log', 2)        # only synthesise full audio for first N samples
+
     # run
     with torch.no_grad():
         for bidx, data in enumerate(loader_test):
+            if bidx >= max_val_samples:
+                break
+
             fn = data['name'][0]
-            print('--------')
-            print('{}/{} - {}'.format(bidx, num_batches, fn))
 
             # unpack data
             for k in data.keys():
                 if not k.startswith('name'):
                     data[k] = data[k].to(args.device)
-            print('>>', data['name'][0])
 
-            # forward
-            st_time = time.time()
-            mel = model(
-                    data['units'], 
-                    data['f0'], 
-                    data['volume'], 
-                    data['spk_id'],
-                    vocoder=vocoder,
-                    infer=True,
-                    return_wav=False,
-                    infer_step=args.infer.infer_step, 
-                    method=args.infer.method,
-                    t_start=args.model.t_start,
-                    voiced=data.get('voiced'))
-            signal = vocoder.infer(mel, data['f0'])
-            ed_time = time.time()
-                        
-            # RTF
-            run_time = ed_time - st_time
-            song_time = signal.shape[-1] / args.data.sampling_rate
-            rtf = run_time / song_time
-            print('RTF: {}  | {} / {}'.format(rtf, run_time, song_time))
-            rtf_all.append(rtf)
-           
-            # loss
+            # 1. Fast loss calculation (all evaluated samples)
             ddsp_loss, reflow_loss, f0_loss = model(
-                data['units'], 
-                data['f0'], 
-                data['volume'], 
+                data['units'],
+                data['f0'],
+                data['volume'],
                 data['spk_id'],
                 vocoder=vocoder,
                 gt_spec=data['mel'],
@@ -124,63 +102,79 @@ def test(args, model, vocoder, loader_test, saver):
             test_ddsp_loss += ddsp_loss.item()
             test_reflow_loss += reflow_loss.item()
             test_f0_loss += f0_loss.item()
-            
-            # log mel
-            saver.log_spec(data['name'][0], data['mel'], mel)
-            
-            # log audio
-            path_audio = os.path.join(args.data.valid_path, 'audio', data['name_ext'][0])
-            audio, sr = librosa.load(path_audio, sr=args.data.sampling_rate)
-            if len(audio.shape) > 1:
-                audio = librosa.to_mono(audio)
-            audio = torch.from_numpy(audio).unsqueeze(0).to(signal)
-            saver.log_audio({fn+'/gt.wav': audio, fn+'/pred.wav': signal})
-
-            # ==========================================
-            # FIX: Removed the dead WAV2MEL STFT code here.
-            # It was calculating pre_mel and gt_mel but never using them.
-            # ==========================================
-
-            # FIX: Correct Min-Max Normalization to [0, 1] range for accurate power math
-            gt_mel_norm = torch.clip(data['mel'], spec_min, spec_max)
-            gt_mel_norm = (gt_mel_norm - spec_min) / spec_range
-            pre_mel_norm = torch.clip(mel, spec_min, spec_max)
-            pre_mel_norm = (pre_mel_norm - spec_min) / spec_range
-            # 计算指标
-            mel_val_mse_all += torch.nn.functional.mse_loss(mel, data['mel']).item()
-            mel_val_snr_all += calculate_mel_snr(gt_mel_norm, pre_mel_norm).item()
-            mel_val_psnr_all += calculate_mel_psnr(gt_mel_norm, pre_mel_norm).item()
-            mel_val_sisnr_all += calculate_mel_si_snr(gt_mel_norm, pre_mel_norm).item()
             mel_val_mse_all_num += 1
-            
+
+            # 2. Slow ODE sampling + Vocoder + Audio logging (ONLY for first few samples)
+            if bidx < max_audio_log:
+                print('--------')
+                print('Synthesizing sample {}/{} - {}'.format(bidx + 1, max_audio_log, fn))
+
+                st_time = time.time()
+                mel = model(
+                    data['units'],
+                    data['f0'],
+                    data['volume'],
+                    data['spk_id'],
+                    vocoder=vocoder,
+                    infer=True,
+                    return_wav=False,
+                    infer_step=args.infer.infer_step,
+                    method=args.infer.method,
+                    t_start=args.model.t_start,
+                    voiced=data.get('voiced'))
+                signal = vocoder.infer(mel, data['f0'])
+                ed_time = time.time()
+
+                # RTF
+                run_time = ed_time - st_time
+                song_time = signal.shape[-1] / args.data.sampling_rate
+                rtf = run_time / song_time
+                print('RTF: {:.4f} | {:.2f}s / {:.2f}s'.format(rtf, run_time, song_time))
+                rtf_all.append(rtf)
+
+                # log mel & audio
+                saver.log_spec(data['name'][0], data['mel'], mel)
+
+                path_audio = os.path.join(args.data.valid_path, 'audio', data['name_ext'][0])
+                audio, sr = librosa.load(path_audio, sr=args.data.sampling_rate)
+                if len(audio.shape) > 1:
+                    audio = librosa.to_mono(audio)
+                audio = torch.from_numpy(audio).unsqueeze(0).to(signal)
+                saver.log_audio({fn + '/gt.wav': audio, fn + '/pred.wav': signal})
+
+                # Compute spectrogram metrics on synthesized audio
+                gt_mel_norm = torch.clip(data['mel'], spec_min, spec_max)
+                gt_mel_norm = (gt_mel_norm - spec_min) / spec_range
+                pre_mel_norm = torch.clip(mel, spec_min, spec_max)
+                pre_mel_norm = (pre_mel_norm - spec_min) / spec_range
+
+                mel_val_mse_all += torch.nn.functional.mse_loss(mel, data['mel']).item()
+                mel_val_snr_all += calculate_mel_snr(gt_mel_norm, pre_mel_norm).item()
+                mel_val_psnr_all += calculate_mel_psnr(gt_mel_norm, pre_mel_norm).item()
+                mel_val_sisnr_all += calculate_mel_si_snr(gt_mel_norm, pre_mel_norm).item()
+
     # report
-    test_ddsp_loss /= num_batches
-    test_reflow_loss /= num_batches 
-    test_f0_loss /= num_batches
-    mel_val_mse_all /= mel_val_mse_all_num
-    mel_val_snr_all /= mel_val_mse_all_num
-    mel_val_psnr_all /= mel_val_mse_all_num
-    mel_val_sisnr_all /= mel_val_mse_all_num
+    test_ddsp_loss /= mel_val_mse_all_num
+    test_reflow_loss /= mel_val_mse_all_num
+    test_f0_loss /= mel_val_mse_all_num
+
+    synth_count = max(len(rtf_all), 1)
+    mel_val_mse_all /= synth_count
+    mel_val_snr_all /= synth_count
+    mel_val_psnr_all /= synth_count
+    mel_val_sisnr_all /= synth_count
 
     # check
     print(' [test_ddsp_loss] test_ddsp_loss:', test_ddsp_loss)
     print(' [test_reflow_loss] test_reflow_loss:', test_reflow_loss)
     print(' [test_f0_loss] test_f0_loss:', test_f0_loss)
-    print(' Real Time Factor', np.mean(rtf_all))
-    print(' Mel Val MSE', mel_val_mse_all)
+    if rtf_all:
+        print(' Real Time Factor:', np.mean(rtf_all))
+    print(' Mel Val MSE:', mel_val_mse_all)
     saver.log_value({
-        'validation/mel_val_mse': mel_val_mse_all
-    })
-    print(' Mel Val SNR', mel_val_snr_all)
-    saver.log_value({
-        'validation/mel_val_snr': mel_val_snr_all
-    })
-    print(' Mel Val PSNR', mel_val_psnr_all)
-    saver.log_value({
-        'validation/mel_val_psnr': mel_val_psnr_all
-    })
-    print(' Mel Val SI-SNR', mel_val_sisnr_all)
-    saver.log_value({
+        'validation/mel_val_mse': mel_val_mse_all,
+        'validation/mel_val_snr': mel_val_snr_all,
+        'validation/mel_val_psnr': mel_val_psnr_all,
         'validation/mel_val_sisnr': mel_val_sisnr_all
     })
     return test_ddsp_loss, test_reflow_loss

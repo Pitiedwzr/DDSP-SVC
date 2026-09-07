@@ -69,6 +69,8 @@ train:
   interval_log: 1
   interval_val: 2000
   interval_force_save: 4000
+  max_val_samples: 169 # total samples to evaluate loss on
+  max_audio_log: 4 # only synthesise full audio for first N samples
   lr: 0.0002
   lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
   # Only for cosine
