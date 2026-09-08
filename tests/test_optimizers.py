@@ -1,8 +1,10 @@
 import unittest
+
 import torch
-import torch.nn as nn
-from optimizer.muon import get_params_for_muon, Muon, Muon_AdamW
-from optimizer.aurora import get_params_for_aurora, Aurora, Aurora_AdamW, aurora_update
+from torch import nn
+
+from optimizer.aurora import aurora_update
+from optimizer.muon import Muon_AdamW, get_params_for_muon
 
 
 class OptimizerCorrectnessTest(unittest.TestCase):
@@ -27,13 +29,61 @@ class OptimizerCorrectnessTest(unittest.TestCase):
         self.assertIn(id(model.pointwise.weight), muon_param_ids)
         self.assertIn(id(model.linear.weight), muon_param_ids)
 
+    def test_muon_excludes_self_flow_projection_head(self):
+        class ModelWithSelfFlowHead(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.backbone = nn.Linear(64, 64)
+                self.self_flow_projector = nn.Sequential(
+                    nn.Linear(64, 64), nn.SiLU(), nn.Linear(64, 64)
+                )
+
+        model = ModelWithSelfFlowHead()
+        muon_param_ids = {id(p) for p in get_params_for_muon(model)}
+
+        self.assertIn(id(model.backbone.weight), muon_param_ids)
+        self.assertNotIn(id(model.self_flow_projector[0].weight), muon_param_ids)
+        self.assertNotIn(id(model.self_flow_projector[2].weight), muon_param_ids)
+
+    def test_muon_adamw_uses_decay_only_for_matrix_parameters(self):
+        class ModelWithSelfFlowHead(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.backbone = nn.Linear(64, 64)
+                self.self_flow_projector = nn.Linear(64, 64)
+
+        model = ModelWithSelfFlowHead()
+        opt = Muon_AdamW(model, lr=0.01, weight_decay=0.1)
+
+        adamw_groups = [
+            group
+            for optimizer in opt.optimizers
+            if isinstance(optimizer, torch.optim.AdamW)
+            for group in optimizer.param_groups
+        ]
+        decay_group = next(group for group in adamw_groups if group["weight_decay"] > 0)
+        no_decay_group = next(
+            group for group in adamw_groups if group["weight_decay"] == 0
+        )
+        self.assertEqual(decay_group["weight_decay"], 0.1)
+        self.assertEqual(no_decay_group["weight_decay"], 0.0)
+        self.assertIn(
+            id(model.self_flow_projector.weight), {id(p) for p in decay_group["params"]}
+        )
+        self.assertIn(
+            id(model.self_flow_projector.bias),
+            {id(p) for p in no_decay_group["params"]},
+        )
+
     def test_aurora_dimension_scaling(self):
         W = torch.randn(64, 64)
         G = torch.randn(64, 64)
         momentum = torch.zeros(64, 64)
 
         # Should execute without error using float32 / bf16 fallback
-        updated_W = aurora_update(W.clone(), G.clone(), momentum.clone(), eta=0.01, use_bf16=False)
+        updated_W = aurora_update(
+            W.clone(), G.clone(), momentum.clone(), eta=0.01, use_bf16=False
+        )
         self.assertEqual(updated_W.shape, W.shape)
         self.assertFalse(torch.isnan(updated_W).any())
 
@@ -47,5 +97,5 @@ class OptimizerCorrectnessTest(unittest.TestCase):
         self.assertFalse(torch.isnan(layer.weight).any())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -1,10 +1,10 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch import Tensor
-from torch.nn import Module, Parameter, Embedding
-from typing import List
 from itertools import repeat
+
+import torch
+import torch.nn.functional as F
+from torch import Tensor, nn
+from torch.nn import Parameter
+
 from .chained_optimizer import ChainedOptimizer, OptimizerSpec
 
 coeffs_list = [
@@ -15,11 +15,13 @@ coeffs_list = [
     (2.300652019954817, -1.6689039845747493, 0.4188073119525673),
     (1.891301407787398, -1.2679958271945868, 0.37680408948524835),
     (1.8750014808534479, -1.2500016453999487, 0.3750001645474248),
-    (1.875, -1.25, 0.375), # subsequent coeffs equal this numerically
+    (1.875, -1.25, 0.375),  # subsequent coeffs equal this numerically
 ]
 
 # safety factor for numerical stability (but exclude last polynomial )
-coeffs_list = [(a / 1.01 , b / 1.01**3 , c / 1.01**5) for (a, b, c) in coeffs_list[: -1]] + [coeffs_list[-1]]
+coeffs_list = [
+    (a / 1.01, b / 1.01**3, c / 1.01**5) for (a, b, c) in coeffs_list[:-1]
+] + [coeffs_list[-1]]
 
 
 def get_bf16_support_map():
@@ -33,12 +35,12 @@ def get_bf16_support_map():
         return bf16_support_map
 
     for i in range(device_count):
-        device = torch.device(f'cuda:{i}')       
-        major, minor = torch.cuda.get_device_capability(device)
-        bf16_support_map[device] = (major >= 8)
-        
+        device = torch.device(f"cuda:{i}")
+        major, _minor = torch.cuda.get_device_capability(device)
+        bf16_support_map[device] = major >= 8
+
     return bf16_support_map
-    
+
 
 def zeropower_via_newtonschulz5(G: Tensor, steps: int, use_bf16: bool) -> Tensor:
     """
@@ -50,16 +52,18 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int, use_bf16: bool) -> Tensor
     where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
     performance at all relative to UV^T, where USV^T = G is the SVD.
     """
-    assert G.ndim == 3 # batched Muon implementation by @scottjmaddox, and put into practice in the record by @YouJiacheng
-    #a, b, c = (3.4445, -4.7750,  2.0315)
-    
-    X = G.to(dtype = torch.bfloat16 if use_bf16 else torch.float32)
+    assert (
+        G.ndim == 3
+    )  # batched Muon implementation by @scottjmaddox, and put into practice in the record by @YouJiacheng
+    # a, b, c = (3.4445, -4.7750,  2.0315)
+
+    X = G.to(dtype=torch.bfloat16 if use_bf16 else torch.float32)
 
     # Ensure spectral norm is at most 1
     X = F.normalize(X, p=2.0, dim=(-2, -1), eps=1e-7)
-    
+
     # Perform the NS iterations
-    hs = coeffs_list[: steps] + list(repeat(coeffs_list[-1], steps - len(coeffs_list)))
+    hs = coeffs_list[:steps] + list(repeat(coeffs_list[-1], steps - len(coeffs_list)))
     if use_bf16:
         if X.size(-2) < X.size(-1):
             for a, b, c in hs:
@@ -92,7 +96,7 @@ def zeropower_via_newtonschulz5(G: Tensor, steps: int, use_bf16: bool) -> Tensor
                 A.mul_(c)
                 A.diagonal(dim1=-2, dim2=-1).add_(d0)
                 X = torch.bmm(X, A)
-            
+
     return X
 
 
@@ -119,11 +123,25 @@ class Muon(torch.optim.Optimizer):
         ns_steps: The number of Newton-Schulz iteration steps to use.
     """
 
-    def __init__(self, params, lr=5e-4, weight_decay=0.1, momentum=0.95, nesterov=True, ns_steps=5):
-        defaults = dict(lr=lr, weight_decay=weight_decay, momentum=momentum, nesterov=nesterov, ns_steps=ns_steps)
+    def __init__(
+        self,
+        params,
+        lr=5e-4,
+        weight_decay=0.1,
+        momentum=0.95,
+        nesterov=True,
+        ns_steps=5,
+    ):
+        defaults = {
+            "lr": lr,
+            "weight_decay": weight_decay,
+            "momentum": momentum,
+            "nesterov": nesterov,
+            "ns_steps": ns_steps,
+        }
         super().__init__(params, defaults)
         self.bf16_support_map = get_bf16_support_map()
-    
+
     @torch.no_grad()
     def step(self, closure=None):
         for group in self.param_groups:
@@ -139,10 +157,14 @@ class Muon(torch.optim.Optimizer):
                 shape_groups[key]["params"].append(p)
                 shape_groups[key]["grads"].append(g)
                 shape_groups[key]["buffers"].append(state["momentum_buffer"])
-            for key in shape_groups:
-                group_data = shape_groups[key]
-                p, g, buf, m = group_data["params"], group_data["grads"], group_data["buffers"], group["momentum"]
-                torch._foreach_lerp_(buf, g, 1-m)
+            for group_data in shape_groups.values():
+                p, g, buf, m = (
+                    group_data["params"],
+                    group_data["grads"],
+                    group_data["buffers"],
+                    group["momentum"],
+                )
+                torch._foreach_lerp_(buf, g, 1 - m)
                 if group["nesterov"]:
                     torch._foreach_lerp_(g, buf, m)
                     g = torch.stack(g)
@@ -152,13 +174,19 @@ class Muon(torch.optim.Optimizer):
                 if g.ndim >= 4:  # for the case of conv filters
                     g = g.view(g.size(0), g.size(1), -1)
                 use_bf16 = self.bf16_support_map.get(g.device, False)
-                g = zeropower_via_newtonschulz5(g, steps=group["ns_steps"], use_bf16=use_bf16)
+                g = zeropower_via_newtonschulz5(
+                    g, steps=group["ns_steps"], use_bf16=use_bf16
+                )
                 if group["weight_decay"] > 0:
                     torch._foreach_mul_(p, 1 - group["lr"] * group["weight_decay"])
-                torch._foreach_add_(p, g.view(original_shape).unbind(0), alpha=-group["lr"] * max(g[0].size()) ** 0.5)
+                torch._foreach_add_(
+                    p,
+                    g.view(original_shape).unbind(0),
+                    alpha=-group["lr"] * max(g[0].size()) ** 0.5,
+                )
 
 
-def get_params_for_muon(model) -> List[Parameter]:
+def get_params_for_muon(model) -> list[Parameter]:
     """
     Filter parameters:
     - Muon: hidden 2D/3D/4D matrix weights (Linear, Conv with groups=1)
@@ -172,13 +200,24 @@ def get_params_for_muon(model) -> List[Parameter]:
             continue
 
         # 2. Exclude depthwise convolutions (SGU conv)
-        if isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d)):
-            if module.groups == module.in_channels and module.in_channels > 1:
-                continue
+        if (
+            isinstance(module, (nn.Conv1d, nn.Conv2d, nn.Conv3d))
+            and module.groups == module.in_channels
+            and module.in_channels > 1
+        ):
+            continue
 
         # 3. Exclude output projections and AdaLN-Zero FiLM projections
         #    These rely on zero-initialization and must use AdamW!
-        if any(keyword in name.lower() for keyword in ['output_projection', 'film_proj', 'f0_predictor']):
+        if any(
+            keyword in name.lower()
+            for keyword in [
+                "output_projection",
+                "film_proj",
+                "f0_predictor",
+                "self_flow_projector",
+            ]
+        ):
             continue
 
         for param_name, param in module.named_parameters(recurse=False):
@@ -189,8 +228,9 @@ def get_params_for_muon(model) -> List[Parameter]:
             if param.ndim < 2:
                 continue
 
-            # Exclude tokens with degenerate dimensions like (1, D, 1)
-            if any(dim == 1 for dim in param.shape):
+            # Muon needs at least two non-degenerate matrix dimensions. Keep
+            # pointwise convolutions such as (out, in, 1), which flatten cleanly.
+            if sum(dim > 1 for dim in param.shape) < 2:
                 continue
 
             muon_params.append(param)
@@ -199,22 +239,60 @@ def get_params_for_muon(model) -> List[Parameter]:
 
 
 class Muon_AdamW(ChainedOptimizer):
-    def __init__(self, model, lr=0.0002, weight_decay=0.01, muon_lr_factor=5.0, verbose=False):
-        muon_params_id_set = set(id(p) for p in get_params_for_muon(model))
+    def __init__(
+        self, model, lr=0.0002, weight_decay=0.01, muon_lr_factor=5.0, verbose=False
+    ):
+        trainable_params = [p for p in model.parameters() if p.requires_grad]
+        muon_params_id_set = {id(p) for p in get_params_for_muon(model)}
+        adamw_decay_params_id_set = {
+            id(p)
+            for p in trainable_params
+            if id(p) not in muon_params_id_set and p.ndim >= 2
+        }
+        adamw_no_decay_params_id_set = {
+            id(p)
+            for p in trainable_params
+            if id(p) not in muon_params_id_set
+            and id(p) not in adamw_decay_params_id_set
+        }
 
         # Split AdamW into decay (embeddings/film weights) and no-decay (biases/norms)
-        muon_spec = OptimizerSpec(
-            Muon,
-            init_args={'lr': lr * muon_lr_factor, 'weight_decay': weight_decay},
-            param_filter=lambda p: id(p) in muon_params_id_set
-        )
-        adamw_spec = OptimizerSpec(
-            torch.optim.AdamW,
-            init_args={'lr': lr, 'weight_decay': 0.0, 'betas': (0.9, 0.95), 'eps': 1e-8},
-            param_filter=None
-        )
+        specs = []
+        if muon_params_id_set:
+            specs.append(
+                OptimizerSpec(
+                    Muon,
+                    init_args={"lr": lr * muon_lr_factor, "weight_decay": weight_decay},
+                    param_filter=lambda p: id(p) in muon_params_id_set,
+                )
+            )
+        if adamw_decay_params_id_set:
+            specs.append(
+                OptimizerSpec(
+                    torch.optim.AdamW,
+                    init_args={
+                        "lr": lr,
+                        "weight_decay": weight_decay,
+                        "betas": (0.9, 0.95),
+                        "eps": 1e-8,
+                    },
+                    param_filter=lambda p: id(p) in adamw_decay_params_id_set,
+                )
+            )
+        if adamw_no_decay_params_id_set:
+            specs.append(
+                OptimizerSpec(
+                    torch.optim.AdamW,
+                    init_args={
+                        "lr": lr,
+                        "weight_decay": 0.0,
+                        "betas": (0.9, 0.95),
+                        "eps": 1e-8,
+                    },
+                    param_filter=lambda p: id(p) in adamw_no_decay_params_id_set,
+                )
+            )
 
-        specs = [muon_spec, adamw_spec]
         super().__init__(model.parameters(), specs, lr=lr, weight_decay=weight_decay)
         self.muon_lr_factor = muon_lr_factor
 
@@ -226,6 +304,8 @@ class Muon_AdamW(ChainedOptimizer):
             for optimizer_idx, param_group_idx in indices:
                 opt = self.optimizers[optimizer_idx]
                 if isinstance(opt, Muon):
-                    opt.param_groups[param_group_idx]["lr"] = base_lr * self.muon_lr_factor
+                    opt.param_groups[param_group_idx]["lr"] = (
+                        base_lr * self.muon_lr_factor
+                    )
                 else:
                     opt.param_groups[param_group_idx]["lr"] = base_lr
