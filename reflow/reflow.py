@@ -91,6 +91,8 @@ class RectifiedFlow(nn.Module):
                         x_clean, 1000 * clean_t, cond, global_cond,
                         return_hidden_layer=self.self_flow_teacher_layer)
 
+                student_hidden = self.velocity_fn.project_self_flow(student_hidden)
+
                 student_f = student_hidden.float()
                 teacher_f = teacher_hidden.float()
 
