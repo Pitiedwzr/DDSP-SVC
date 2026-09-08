@@ -84,5 +84,6 @@ train:
   gamma: 0.9              # Ignored when using 'cosine', safe to leave for backup
   # ------
   weight_decay: 0.1
+  ema_decay: 0.999 # Effective averaging window ~1k steps; suitable for this 30k-step run
   lambda_ddsp: 1
   save_opt: false

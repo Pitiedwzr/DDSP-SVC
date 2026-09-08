@@ -101,7 +101,11 @@ if __name__ == '__main__':
         raise ValueError(f" [x] Unknown optimizer: {optim_type}")
 
     # Create the EMA teacher before restoring so its state resumes with the model.
-    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(0.9999))
+    ema_decay = float(args.train.get('ema_decay', 0.9999))
+    if not 0.0 <= ema_decay < 1.0:
+        raise ValueError("train.ema_decay must be between 0 (inclusive) and 1 (exclusive)")
+    print(f" [*] EMA decay: {ema_decay}")
+    ema_model = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
 
     # load parameters
     initial_global_step, model, optimizer = utils.load_model(
