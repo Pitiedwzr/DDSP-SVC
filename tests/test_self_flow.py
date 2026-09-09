@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 import torch
 
@@ -126,6 +127,41 @@ class TestSelfFlowSpanMasking(unittest.TestCase):
         self.assertEqual(projector_input_dtypes, [torch.float32])
         self.assertEqual(sf_loss.dtype, torch.float32)
         self.assertTrue(torch.isfinite(sf_loss))
+
+    def test_eval_uses_clean_single_timestep_objective(self):
+        model = LYNXNet2AdaLN(
+            in_dims=32,
+            n_layers=2,
+            n_chans=64,
+            dim_cond=32,
+            dim_global_cond=64,
+            use_self_flow=True,
+            self_flow_projector_dim=64,
+        )
+        rf = RectifiedFlow(
+            velocity_fn=model,
+            out_dims=32,
+            use_self_flow=True,
+            self_flow_condition_mask_ratio=0.5,
+        )
+        rf.eval()
+
+        with mock.patch.object(
+            rf,
+            "_sample_self_flow_mask",
+            side_effect=AssertionError("evaluation sampled a Self-Flow mask"),
+        ):
+            velocity_loss, self_flow_loss = rf.reflow_loss(
+                torch.randn(2, 1, 32, 20),
+                torch.tensor([0.2, 0.4]),
+                torch.randn(2, 32, 20),
+                global_cond=torch.randn(2, 64),
+                teacher_velocity_fn=model,
+                return_self_flow_loss=True,
+            )
+
+        self.assertTrue(torch.isfinite(velocity_loss))
+        self.assertEqual(self_flow_loss.item(), 0.0)
 
 
 if __name__ == "__main__":

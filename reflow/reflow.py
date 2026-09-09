@@ -85,7 +85,10 @@ class RectifiedFlow(nn.Module):
         target_velocity = x_1 - x_0
 
         self_flow_loss = x_1.sum() * 0.0
-        if self.use_self_flow:
+        # Dual timesteps and condition masking are training augmentations.
+        # Evaluation should measure the clean scalar-timestep objective used by
+        # the ODE inference path.
+        if self.use_self_flow and self.training:
             second_t = self._sample_timesteps(x_1.size(0), x_1.device, t_start=t_start)
             if t.dim() != 1:
                 raise ValueError("Base Self-Flow timesteps must have shape [B]")
