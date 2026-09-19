@@ -75,7 +75,7 @@ train:
   muon_lr_factor: 2.0     # Muon LR will be 0.0001 * 2.0 = 0.0002
   lr_scheduler: 'cosine'  # Choose 'step' or 'cosine'
   # Only for cosine
-  t_max: 30000           # Total training steps before reaching minimum LR
+  t_max: 100000           # Total training steps before reaching minimum LR
   eta_min: 0.000001       # Minimum LR at the end of the cosine curve (1e-6)
   div_factor: 25
   final_div_factor: 10000
