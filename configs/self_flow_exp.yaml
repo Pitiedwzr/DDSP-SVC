@@ -29,7 +29,7 @@ model:
   use_attention: false
   use_pitch_aug: true
   use_aux_f0: true
-  use_f0_conditioning: false
+  use_f0_conditioning: true
   # DDSP prior detached for clean acoustic prior isolation
   detach_ddsp_cond: true
   # Self-Flow enabled with optimal phonetic span masking
@@ -55,7 +55,7 @@ infer:
   infer_step: 15
   method: 'rk2'
 env:
-  expdir: /kaggle/working/exp/self-flow-exp
+  expdir: /kaggle/working/exp/self-flow-exp-2
   gpu_id: 0
 train:
   num_workers: 4 # If your cpu and gpu are both very strong, set to 0 may be faster!
